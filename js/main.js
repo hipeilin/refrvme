@@ -77,16 +77,31 @@ const el = {
 const store = createStore(defaultOptions());
 const session = defaultSession();
 
-/** Current stage view: 'preview' | 'crop'. */
+/**
+ * Current stage view: 'preview' | 'crop'.
+ *
+ * Two views rather than handles drawn on the rendered output: the composition
+ * changes shape as the frame and bar options change, so overlaying a crop UI
+ * on it would mean re-deriving the image's position inside the canvas on every
+ * setting change. Cropping against the untouched source is simpler and lets
+ * the user see what they are cutting away.
+ */
 let stageView = 'preview';
 
 /** Object URL for the loaded image; revoked when replaced. */
 let objectUrl = null;
 
-/** Width of the crop used by the last preview render, for export maths. */
+/**
+ * Width of the crop in the last preview render. The export readout scales the
+ * preview's finished dimensions by (exportWidth / this) to predict the saved
+ * file size without doing a second full render on every keystroke.
+ */
 let lastPreviewCropW = PREVIEW_WIDTH;
 
+/** Renders are blocked until the font faces resolve — see ensureFontsReady. */
 let fontsReady = false;
+
+/** Guards scheduleRender so a burst of slider events collapses into one frame. */
 let renderQueued = false;
 
 /* ══ Helpers ═════════════════════════════════════════════════════════════ */
@@ -171,8 +186,9 @@ function render() {
     palette: session.palette,
   });
 
-  // Swap the rendered canvas into the visible one. Resizing then drawing is
-  // cheaper than replacing the element and avoids losing CSS state.
+  // Draw the freshly composed canvas into the one already in the DOM. Setting
+  // width/height clears it, so no explicit clearRect is needed. Replacing the
+  // element instead would drop its CSS sizing and any focus on it.
   el.previewCanvas.width = canvas.width;
   el.previewCanvas.height = canvas.height;
   el.previewCanvas.getContext('2d').drawImage(canvas, 0, 0);
@@ -214,6 +230,8 @@ function updateMeta(previewCanvas) {
  * @param {File} file
  */
 async function loadFile(file) {
+  // Reached from three places: the file input, a drop, and a paste. All three
+  // hand over a File, so they share this one path.
   if (!file || !file.type.startsWith('image/')) {
     showWarnings(['That file is not an image. Try a JPEG, PNG, WebP or GIF.']);
     return;
@@ -242,6 +260,8 @@ async function loadFile(file) {
   session.fileName = file.name.replace(/\.[^.]+$/, '') || 'image';
   session.paletteKey = '';
 
+  // Start with the largest crop the current ratio allows, centred. An unlocked
+  // crop starts as the whole frame.
   const ratio = currentRatio();
   session.crop = ratio
     ? largestFit(image.naturalWidth, image.naturalHeight, ratio)
@@ -397,7 +417,11 @@ el.fileInput.addEventListener('change', (event) => {
   event.target.value = '';
 });
 
-/* ── Drag and drop ─────────────────────────────────────────────────────── */
+/* ── Drag and drop ─────────────────────────────────────────────────────────
+   Bound on `document` rather than the dropzone: once an image is loaded the
+   dropzone is hidden, and a user dropping a second photo onto the preview
+   expects it to load. preventDefault on dragover is required or the browser
+   navigates away to the dropped file.                                        */
 
 for (const type of ['dragenter', 'dragover']) {
   document.addEventListener(type, (event) => {
@@ -419,7 +443,9 @@ document.addEventListener('drop', (event) => {
   if (file) loadFile(file);
 });
 
-/* ── Paste ─────────────────────────────────────────────────────────────── */
+/* ── Paste ─────────────────────────────────────────────────────────────────
+   Screenshot straight into the tool. clipboardData.items holds one entry per
+   representation, so find the image rather than assuming index 0.            */
 
 document.addEventListener('paste', (event) => {
   const item = Array.from(event.clipboardData?.items || [])
@@ -438,7 +464,9 @@ el.download.addEventListener('click', async () => {
   el.download.textContent = 'Saving…';
 
   try {
-    // Render fresh at full resolution rather than upscaling the preview.
+    // Render fresh at full resolution rather than scaling up the 1100px
+    // preview, which would export a soft image. Capped at the crop's own width
+    // so a small crop is never enlarged past its real detail.
     const exportWidth = opts.export.maxWidth
       ? Math.min(opts.export.maxWidth, Math.round(session.crop.w))
       : Math.round(session.crop.w);
@@ -481,6 +509,9 @@ el.download.addEventListener('click', async () => {
 
 /* ── Keep the crop overlay aligned ─────────────────────────────────────── */
 
+// The overlay is positioned in CSS pixels, so it has to be repainted whenever
+// the displayed image changes size. The ResizeObserver catches layout changes
+// the window resize event misses, such as the rail's scrollbar appearing.
 const resizeObserver = new ResizeObserver(() => cropper.sync());
 resizeObserver.observe(el.cropImage);
 window.addEventListener('resize', () => cropper.sync());
