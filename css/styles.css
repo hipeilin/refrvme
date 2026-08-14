@@ -345,6 +345,40 @@ button, input, select { font: inherit; color: inherit; }
   opacity: 0.55;               /* dim the parts being cropped away */
 }
 
+/* ── Fixed-frame mode ──────────────────────────────────────────────────────
+   The tick-box swaps the interaction round: the frame is nailed to the middle
+   of the stage and the image is dragged and zoomed behind it. The cropper
+   becomes a viewport with a definite size — the image is taken out of the flow
+   and transformed, so it can no longer size its own container.               */
+#cropView { width: 100%; }
+
+.cropper--resize {
+  display: block;
+  width: 100%;
+  height: calc(100vh - var(--head-h) - 150px);
+  overflow: hidden;               /* the image travels well past the stage */
+  cursor: grab;
+  touch-action: none;
+}
+.cropper--resize.is-dragging { cursor: grabbing; }
+
+.cropper--resize img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  max-height: none;
+  transform-origin: 0 0;
+  /* Full strength here: what marks the crop is the shade OUTSIDE the frame,
+     so the part being kept has to read as the brighter of the two. */
+  opacity: 1;
+  will-change: transform;
+}
+
+/* Nothing to grab on the frame itself — it does not move in this mode. */
+.cropper--resize .crop-mark { display: none; }
+.cropper--resize .crop-rect { cursor: inherit; }
+
 .crop-rect {
   position: absolute;
   cursor: move;
@@ -352,6 +386,12 @@ button, input, select { font: inherit; color: inherit; }
      positioned overlay divs. */
   box-shadow: 0 0 0 9999px rgba(11, 12, 14, 0.66);
   outline: 1px solid rgba(236, 234, 230, 0.85);
+}
+
+/* Lighter shade in fixed-frame mode: the image underneath is at full opacity,
+   and the part being cropped away has to stay legible enough to aim with. */
+.cropper--resize .crop-rect {
+  box-shadow: 0 0 0 9999px rgba(11, 12, 14, 0.62);
 }
 
 /* Rule-of-thirds guides, visible only while dragging so they don't clutter. */
@@ -734,6 +774,9 @@ input[type="color"]::-moz-color-swatch { border: 0; border-radius: 2px; }
 
   #previewCanvas,
   .cropper img { max-height: 52vh; }
+
+  .cropper--resize { height: 52vh; }
+  .cropper--resize img { max-height: none; }
 
   .masthead { padding: 0 12px; }
   .privacy-note { display: none; }
