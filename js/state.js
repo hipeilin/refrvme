@@ -17,6 +17,13 @@ export function defaultOptions() {
     crop: {
       ratioId: 'portrait45',
       orientation: 'portrait', // 'portrait' | 'landscape'
+      /**
+       * Fixed-frame editing: the frame stays put and the image is panned and
+       * zoomed underneath it. Off by default — dragging the rect is the more
+       * obvious gesture on a desktop, and this is the alternative for people
+       * who think in terms of positioning the photograph.
+       */
+      resizeMode: false,
     },
 
     watermark: {

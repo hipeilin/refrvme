@@ -40,6 +40,15 @@ running the files through Jekyll first.
 portrait/landscape switch. Drag the rectangle to move it, drag a trim mark to
 resize. Arrow keys nudge; `+` and `-` zoom.
 
+**Resize (reposition & zoom).** Tick it and the interaction turns round: the
+frame is pinned to the middle of the stage and the photograph is dragged and
+zoomed behind it, the way a profile-picture cropper works. Scroll, use the
+slider, or press `+` and `-` to zoom; drag or use the arrow keys to reposition.
+The whole photograph stays on screen while you aim, with everything outside the
+frame dimmed. Zooming out stops at the point where the image still covers the
+frame — its shorter side — so no edge is ever exposed and the export can never
+contain whitespace.
+
 **Watermark.** Text, colour, opacity, inset, and one of five anchor positions.
 
 **Frame.** Border width, background colour, and a corner radius applied to the
@@ -68,15 +77,15 @@ js/
   lib/
     color.js           hex/rgb conversion, luminance
     palette.js         median-cut colour extraction
-    crop-geometry.js   crop rectangle maths, ratio presets
+    crop-geometry.js   crop rectangle maths, ratio presets, pan & zoom limits
     text.js            the shared font specification
     layout.js          composition geometry
   ui/
-    cropper.js         pointer-driven crop overlay
+    cropper.js         pointer-driven crop overlay, both gesture modes
     controls.js        generic control binding
 test/
-  logic.test.mjs       74 assertions, runs in Node
-  browser.test.mjs     31 assertions, runs in Playwright
+  logic.test.mjs       97 assertions, runs in Node
+  browser.test.mjs     53 assertions, runs in Playwright
   visual.mjs           renders a matrix of configurations to PNG
 assets/
   example.png          the screenshot at the top of this file
@@ -95,6 +104,21 @@ crop → watermark → frame → palette → caption
 
 The order matters. Burning the watermark into the cropped image before the
 frame goes on means switching the frame on cannot change the watermark's size.
+
+### Two gestures, one rectangle
+
+The crop rect is the only state either gesture mode writes, and it always
+lives in source-image pixels. Dragging a trim mark and dragging the photograph
+are the same edit expressed two ways — panning the image right subtracts from
+`crop.x`, zooming in shrinks `crop.w` about the anchor point — so nothing
+downstream needs to know which mode produced the rect.
+
+Zoom is not stored. It is read back out of the rect as `maxW / crop.w`, where
+`maxW` is the widest rect of the frame's shape that fits inside the image.
+Defining zoom 1 that way rather than as the image's natural size is what makes
+whitespace unreachable: the rect is clamped to the image, so the frame is
+always fully covered and zooming out simply runs out of room at the shorter
+side.
 
 ### Everything scales from one number
 

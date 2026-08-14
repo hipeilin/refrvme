@@ -19,6 +19,10 @@ import {
   refitToRatio,
   clampToBounds,
   resolveRatio,
+  frameRatioOf,
+  zoomTo,
+  zoomFactorOf,
+  MAX_ZOOM,
 } from './lib/crop-geometry.js';
 import { createCropper } from './ui/cropper.js';
 import {
@@ -60,6 +64,9 @@ const el = {
   rail: document.getElementById('rail'),
   ratioChips: document.getElementById('ratioChips'),
   orientation: document.getElementById('orientation'),
+  zoomField: document.getElementById('zoomField'),
+  zoomRange: document.getElementById('zoomRange'),
+  zoomReadout: document.getElementById('zoomReadout'),
   wmPosition: document.getElementById('wmPosition'),
   fontPick: document.getElementById('fontPick'),
   recenterCrop: document.getElementById('recenterCrop'),
@@ -119,7 +126,55 @@ function readCropContext() {
     imgW: session.image?.naturalWidth || 0,
     imgH: session.image?.naturalHeight || 0,
     ratio: currentRatio(),
+    resizeMode: store.get().crop.resizeMode,
   };
+}
+
+/**
+ * The frame's aspect ratio in fixed-frame mode — the locked ratio, or the
+ * crop's own shape when the ratio is free.
+ */
+function frameRatio() {
+  return frameRatioOf(session.crop, currentRatio());
+}
+
+/**
+ * Reflect the fixed-frame tick-box: show its zoom control, retune the cropper
+ * and pull the crop inside the zoom limits.
+ *
+ * The clamp matters on the way IN. A crop dragged down to a sliver has a zoom
+ * factor far past the slider's range, and without normalising it the slider
+ * would sit pegged at the end reporting a number that isn't true.
+ */
+function syncCropMode() {
+  const on = store.get().crop.resizeMode;
+  el.zoomField.hidden = !on;
+
+  el.cropper.setAttribute(
+    'aria-label',
+    on
+      ? 'Crop frame. Drag to reposition the image, scroll or press + and - to zoom, arrow keys to nudge.'
+      : 'Crop area. Drag to move, drag a corner to resize, arrow keys to nudge.',
+  );
+
+  if (on && session.image && session.crop) {
+    const { naturalWidth: iw, naturalHeight: ih } = session.image;
+    const ratio = frameRatio();
+    const zoom = Math.min(MAX_ZOOM, Math.max(1, zoomFactorOf(session.crop, iw, ih, ratio)));
+    session.crop = zoomTo(session.crop, zoom, iw, ih, ratio);
+  }
+
+  refreshZoom();
+  cropper?.sync();
+}
+
+/** Push the crop's current zoom factor into the slider and its readout. */
+function refreshZoom() {
+  if (!session.image || !session.crop || !store.get().crop.resizeMode) return;
+  const { naturalWidth: iw, naturalHeight: ih } = session.image;
+  const zoom = zoomFactorOf(session.crop, iw, ih, frameRatio());
+  el.zoomRange.value = String(Math.round(Math.min(MAX_ZOOM, Math.max(1, zoom)) * 100));
+  el.zoomReadout.textContent = `${zoom.toFixed(2)}×`;
 }
 
 function showWarnings(list) {
@@ -203,9 +258,15 @@ function updateMeta(previewCanvas) {
   const crop = session.crop;
   const opts = store.get();
 
+  const zoomNote = opts.crop.resizeMode && session.image
+    ? `  ·  zoom ${zoomFactorOf(
+        crop, session.image.naturalWidth, session.image.naturalHeight, frameRatio(),
+      ).toFixed(2)}×`
+    : '';
+
   el.cropMeta.textContent =
     `crop ${Math.round(crop.w)} × ${Math.round(crop.h)} px  ·  ` +
-    `${(crop.w / crop.h).toFixed(3)}:1`;
+    `${(crop.w / crop.h).toFixed(3)}:1${zoomNote}`;
 
   // Scale the preview's finished size up to whatever the export will use.
   const exportCropW = opts.export.maxWidth
@@ -274,6 +335,7 @@ async function loadFile(file) {
   el.stageSwitch.hidden = false;
   el.download.disabled = false;
   el.resetAll.hidden = false;
+  syncCropMode();
   setStageView(stageView);
 
   const mp = (image.naturalWidth * image.naturalHeight) / 1e6;
@@ -310,6 +372,7 @@ const cropper = createCropper({
   onChange(next) {
     session.crop = next;
     cropper.sync();
+    refreshZoom();
     scheduleRender();
   },
 });
@@ -319,7 +382,28 @@ const cropper = createCropper({
 const controls = bindControls({
   root: el.rail,
   store,
-  onChange: scheduleRender,
+  onChange() {
+    // Cheap enough to run for every control: it only reads the tick-box and
+    // repaints the overlay, and routing it here means the crop mode can never
+    // fall out of step with the state that drives it.
+    syncCropMode();
+    scheduleRender();
+  },
+});
+
+/* ── Zoom slider ───────────────────────────────────────────────────────────
+   Bound by hand rather than through data-bind: zoom is not a stored setting
+   but a reading of the crop rect, so it has to be derived on the way out and
+   applied to the rect on the way in.                                        */
+
+el.zoomRange.addEventListener('input', () => {
+  if (!session.image || !session.crop) return;
+  const { naturalWidth: iw, naturalHeight: ih } = session.image;
+  session.crop = zoomTo(session.crop, Number(el.zoomRange.value) / 100, iw, ih, frameRatio());
+  session.paletteKey = '';
+  el.zoomReadout.textContent = `${(Number(el.zoomRange.value) / 100).toFixed(2)}×`;
+  cropper.sync();
+  scheduleRender();
 });
 
 const ratioChips = bindRatioChips({
@@ -383,7 +467,7 @@ function applyRatioToCrop() {
     : clampToBounds(session.crop, iw, ih);
 
   session.paletteKey = ''; // crop moved, palette is stale
-  cropper.sync();
+  syncCropMode();          // the frame's shape changed, so the zoom scale did too
 }
 
 /* ══ Actions ═════════════════════════════════════════════════════════════ */
@@ -392,9 +476,17 @@ el.recenterCrop.addEventListener('click', () => {
   if (!session.image) return;
   const { naturalWidth: iw, naturalHeight: ih } = session.image;
   const ratio = currentRatio();
-  session.crop = ratio ? largestFit(iw, ih, ratio) : { x: 0, y: 0, w: iw, h: ih };
+
+  // In fixed-frame mode "recentre" means zoom fully out and centre — and the
+  // frame keeps its shape, so a free crop recentres to its own proportions
+  // rather than snapping back to the whole image.
+  session.crop = store.get().crop.resizeMode
+    ? largestFit(iw, ih, frameRatio())
+    : ratio ? largestFit(iw, ih, ratio) : { x: 0, y: 0, w: iw, h: ih };
+
   session.paletteKey = '';
   cropper.sync();
+  refreshZoom();
   scheduleRender();
 });
 
@@ -403,7 +495,7 @@ el.resetAll.addEventListener('click', () => {
   controls.refresh();
   ratioChips.refresh();
   orientationGroup.refresh();
-  applyRatioToCrop();
+  applyRatioToCrop();       // also re-syncs the crop mode and its zoom readout
   session.paletteKey = '';
   scheduleRender();
 });
@@ -514,6 +606,10 @@ el.download.addEventListener('click', async () => {
 // the window resize event misses, such as the rail's scrollbar appearing.
 const resizeObserver = new ResizeObserver(() => cropper.sync());
 resizeObserver.observe(el.cropImage);
+// In fixed-frame mode the image is out of the flow and its layout box no
+// longer changes with the window, so the viewport itself has to be watched or
+// the frame would stay where it was until the next gesture.
+resizeObserver.observe(el.cropper);
 window.addEventListener('resize', () => cropper.sync());
 
 /* ══ Boot ════════════════════════════════════════════════════════════════ */
@@ -524,5 +620,6 @@ window.addEventListener('resize', () => cropper.sync());
   await ensureFontsReady();
   fontsReady = true;
   stageTabs.refresh();
+  syncCropMode();
   scheduleRender();
 })();

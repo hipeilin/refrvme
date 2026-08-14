@@ -102,6 +102,23 @@
         </div>
       </div>
 
+      <label class="check">
+        <input type="checkbox" data-bind="crop.resizeMode" id="resizeMode">
+        <span>Resize: reposition &amp; zoom the image</span>
+      </label>
+
+      <div class="field" id="zoomField" hidden>
+        <label class="range-field">
+          <span class="field__label">Zoom <output id="zoomReadout">1.00×</output></span>
+          <input type="range" id="zoomRange" min="100" max="800" step="1" value="100"
+                 aria-label="Zoom the image inside the frame">
+        </label>
+        <p class="field__note">
+          Drag the photograph to reposition it; scroll or use the slider to zoom.
+          Zooming out stops where the image still fills the frame, so no edge is ever exposed.
+        </p>
+      </div>
+
       <div class="field field--row">
         <button type="button" class="btn btn--wide" id="recenterCrop">Recentre crop</button>
       </div>

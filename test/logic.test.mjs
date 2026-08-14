@@ -15,6 +15,13 @@ import {
   clampToBounds,
   resizeFromHandle,
   resolveRatio,
+  frameRatioOf,
+  frameBox,
+  zoomBounds,
+  zoomTo,
+  zoomBy,
+  zoomFactorOf,
+  MAX_ZOOM,
 } from '../js/lib/crop-geometry.js';
 import { resolveTextSize, metricOf, HEX_SCALE, HEX_COLUMN_FILL, TEXT } from '../js/lib/text.js';
 import { computeLayout, swatchMetrics, captionsCollide } from '../js/lib/layout.js';
@@ -132,6 +139,74 @@ group('crop geometry');
   ok('landscape 4:5 becomes 5:4', Math.abs(resolveRatio('portrait45', 'landscape') - 5 / 4) < 1e-9);
   ok('square is orientation-proof', resolveRatio('square', 'portrait') === resolveRatio('square', 'landscape'));
   ok('free stays null', resolveRatio('free', 'portrait') === null);
+}
+
+// ------------------------------------------------- fixed-frame pan & zoom ---
+group('crop geometry — pan & zoom');
+{
+  // The whole point of the mode: zooming out can never expose an edge.
+  const iw = 2000, ih = 1000, ratio = 4 / 5;
+  const start = largestFit(iw, ih, ratio);
+  const out = zoomTo(start, 0.2, iw, ih, ratio); // asked for far past the cap
+  close('zoom-out caps at the covering size', out.w, start.w, 1e-9);
+  ok('capped rect stays inside the image',
+    out.x >= -1e-9 && out.y >= -1e-9 && out.x + out.w <= iw + 1e-9 && out.y + out.h <= ih + 1e-9,
+    JSON.stringify(out));
+  close('cap is set by the shorter side', out.h, ih, 1e-9);
+}
+{
+  const iw = 1200, ih = 1600, ratio = 1;
+  const { minW, maxW } = zoomBounds(iw, ih, ratio);
+  close('cap is the largest fitting square', maxW, 1200, 1e-9);
+  close('zoom-in limit is MAX_ZOOM deep', minW, 1200 / MAX_ZOOM, 1e-9);
+
+  const deep = zoomTo(largestFit(iw, ih, ratio), 99, iw, ih, ratio);
+  close('zoom-in is clamped too', deep.w, minW, 1e-9);
+  close('zoom factor reads back', zoomFactorOf(deep, iw, ih, ratio), MAX_ZOOM, 1e-9);
+}
+{
+  // Zooming holds the anchor point still: the source pixel under the top-left
+  // corner of the frame must not move when the frame is anchored there.
+  const iw = 2000, ih = 2000, ratio = 1;
+  const start = { x: 400, y: 400, w: 800, h: 800 };
+  const anchor = { x: 0, y: 0 };
+  const out = zoomBy(start, 2, iw, ih, ratio, anchor);
+  close('anchored corner holds x', out.x, 400, 1e-9);
+  close('anchored corner holds y', out.y, 400, 1e-9);
+  close('zooming in halves the window', out.w, 400, 1e-9);
+}
+{
+  // Centre anchoring is the slider's behaviour.
+  const iw = 2000, ih = 2000, ratio = 1;
+  const start = { x: 500, y: 500, w: 1000, h: 1000 };
+  const out = zoomBy(start, 2, iw, ih, ratio);
+  close('centre held on x', out.x + out.w / 2, 1000, 1e-9);
+  close('centre held on y', out.y + out.h / 2, 1000, 1e-9);
+}
+{
+  // Anchoring near an edge would push the rect out; the clamp has to win, and
+  // it must not distort the shape while doing so.
+  const iw = 1000, ih = 1000, ratio = 1;
+  const out = zoomTo({ x: 0, y: 0, w: 200, h: 200 }, 1, iw, ih, ratio, { x: 0, y: 0 });
+  ok('clamped back inside after anchoring at the edge',
+    out.x >= -1e-9 && out.x + out.w <= iw + 1e-9, JSON.stringify(out));
+  close('shape survives the clamp', out.w / out.h, 1, 1e-9);
+}
+{
+  ok('locked ratio wins', frameRatioOf({ x: 0, y: 0, w: 300, h: 100 }, 4 / 5) === 4 / 5);
+  close('free frame freezes the crop shape', frameRatioOf({ x: 0, y: 0, w: 300, h: 100 }, null), 3, 1e-9);
+  ok('free frame with no crop is square', frameRatioOf(null, null) === 1);
+}
+{
+  const f = frameBox(1000, 600, 4 / 5, 40);
+  close('frame fits the padded height', f.h, 520, 1e-9);
+  close('frame keeps its ratio', f.w / f.h, 4 / 5, 1e-9);
+  close('frame is centred horizontally', f.x + f.w / 2, 500, 1e-9);
+  close('frame is centred vertically', f.y + f.h / 2, 300, 1e-9);
+
+  const wide = frameBox(400, 1000, 2, 0);
+  close('width-bound frame uses the full width', wide.w, 400, 1e-9);
+  close('and its ratio holds', wide.h, 200, 1e-9);
 }
 
 // ------------------------------------------------------------------- text ---
