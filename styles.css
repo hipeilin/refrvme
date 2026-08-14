@@ -1,0 +1,753 @@
+/**
+ * styles.css — Passepartout
+ *
+ * DESIGN NOTE: the interface is deliberately achromatic. This is a tool whose
+ * whole job is extracting and presenting colour, so any accent hue of its own
+ * would compete with the thing being judged. Selection and focus are signalled
+ * by inversion and weight rather than colour. The only chroma on screen comes
+ * from the user's photograph and the swatches pulled out of it.
+ *
+ * Type: a monospace face for every label and value — this reads as an
+ * instrument panel, and numbers that change constantly want tabular figures.
+ * The system sans carries the prose. No webfonts: see index.html.
+ */
+
+/* ══ Tokens ══════════════════════════════════════════════════════════════ */
+:root {
+  --void:      #0B0C0E;   /* stage background */
+  --panel:     #131518;   /* control rail */
+  --panel-in:  #191C20;   /* inset controls */
+  --edge:      #24282D;   /* hairlines */
+  --edge-hi:   #3A4046;   /* hairlines, raised */
+  --ink:       #ECEAE6;   /* primary text */
+  --ink-2:     #969CA4;   /* labels */
+  --ink-3:     #5F656D;   /* disabled, hints */
+
+  /* System stacks: no CDN request, no flash of fallback text, and the export
+     looks native on the machine that made it. */
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+
+  --rail-w: 340px;
+  --head-h: 58px;
+
+  --r-sm: 4px;
+  --r-md: 7px;
+
+  --t-fast: 110ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ══ Reset ═══════════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--void);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button, input, select { font: inherit; color: inherit; }
+
+/* `display: flex` on a component beats the UA's `[hidden] { display: none }`,
+   which silently leaves "hidden" elements on screen. Restate it with enough
+   weight to win everywhere. */
+[hidden] { display: none !important; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Visible keyboard focus everywhere, without a colour accent. */
+:where(button, input, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* ══ Masthead ════════════════════════════════════════════════════════════ */
+.masthead {
+  height: var(--head-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--edge);
+  background: var(--panel);
+}
+
+.masthead__mark { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+
+.masthead__name {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+}
+
+.masthead__sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.masthead__actions { display: flex; align-items: center; gap: 10px; }
+
+.privacy-note {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  padding-right: 4px;
+  white-space: nowrap;
+}
+
+/* ══ Buttons ═════════════════════════════════════════════════════════════ */
+.btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  padding: 7px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--edge-hi);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast), opacity var(--t-fast);
+}
+
+.btn:hover:not(:disabled) { background: var(--panel-in); border-color: var(--ink-3); }
+
+.btn--solid {
+  background: var(--ink);
+  color: var(--void);
+  border-color: var(--ink);
+  font-weight: 500;
+}
+.btn--solid:hover:not(:disabled) { background: #fff; border-color: #fff; }
+
+.btn--ghost { border-color: transparent; color: var(--ink-2); }
+
+.btn--wide { width: 100%; }
+
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ══ Workspace ═══════════════════════════════════════════════════════════ */
+.workspace {
+  display: grid;
+  grid-template-columns: 1fr var(--rail-w);
+  height: calc(100% - var(--head-h));
+}
+
+/* ══ Stage ═══════════════════════════════════════════════════════════════ */
+.stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 28px 28px 68px;
+  min-width: 0;
+  overflow: hidden;
+
+  /* Contact-sheet grid: a faint reference field, the way a light table has
+     one. Sits behind the work rather than decorating it. */
+  background-image:
+    linear-gradient(var(--edge) 1px, transparent 1px),
+    linear-gradient(90deg, var(--edge) 1px, transparent 1px);
+  background-size: 46px 46px;
+  background-position: center;
+  opacity: 1;
+}
+
+.stage::after {
+  /* Vignette so the grid fades out at the edges instead of stopping abruptly. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 30%, var(--void) 88%);
+}
+
+.stage__view {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+}
+
+.preview-frame {
+  min-height: 0;
+  display: flex;
+  filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.55));
+}
+
+#previewCanvas {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - var(--head-h) - 150px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.stage__meta {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.stage__warning {
+  position: absolute;
+  bottom: 60px;
+  z-index: 3;
+  margin: 0;
+  max-width: min(560px, 90%);
+  padding: 8px 13px;
+  border: 1px solid var(--edge-hi);
+  border-left-width: 3px;
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+/* ══ Stage switch ════════════════════════════════════════════════════════ */
+.stage__switch {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+  background: var(--panel);
+}
+
+.seg {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  padding: 6px 16px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+
+.seg:hover { color: var(--ink); }
+
+.seg[aria-selected="true"],
+.seg[aria-checked="true"] {
+  background: var(--ink);
+  color: var(--void);
+  font-weight: 500;
+}
+
+/* ══ Dropzone ════════════════════════════════════════════════════════════ */
+.dropzone { position: relative; z-index: 1; }
+
+.dropzone__inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: min(460px, 74vw);
+  aspect-ratio: 4 / 5;
+  padding: 32px;
+  border: 1px dashed var(--edge-hi);
+  border-radius: var(--r-md);
+  background: rgba(19, 21, 24, 0.72);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+
+.dropzone__inner:hover,
+.dropzone.is-over .dropzone__inner {
+  border-color: var(--ink-2);
+  background: rgba(25, 28, 32, 0.9);
+}
+
+/* Printer's trim marks at the corners — the vernacular for "this is where the
+   image gets cut". Reused, at working size, on the crop rectangle. */
+.dropzone__marks span {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 0 solid var(--ink-3);
+}
+.dropzone__marks span:nth-child(1) { top: 12px; left: 12px; border-top-width: 1px; border-left-width: 1px; }
+.dropzone__marks span:nth-child(2) { top: 12px; right: 12px; border-top-width: 1px; border-right-width: 1px; }
+.dropzone__marks span:nth-child(3) { bottom: 12px; left: 12px; border-bottom-width: 1px; border-left-width: 1px; }
+.dropzone__marks span:nth-child(4) { bottom: 12px; right: 12px; border-bottom-width: 1px; border-right-width: 1px; }
+
+.dropzone__title { font-size: 15px; font-weight: 500; }
+
+.dropzone__hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* ══ Cropper ═════════════════════════════════════════════════════════════ */
+.cropper {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  line-height: 0;
+  touch-action: none;          /* pointer events own the gesture, not the browser */
+  user-select: none;
+  cursor: crosshair;
+}
+
+.cropper img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - var(--head-h) - 150px);
+  width: auto;
+  height: auto;
+  opacity: 0.55;               /* dim the parts being cropped away */
+}
+
+.crop-rect {
+  position: absolute;
+  cursor: move;
+  /* The shade over everything outside the crop. Cheaper and crisper than four
+     positioned overlay divs. */
+  box-shadow: 0 0 0 9999px rgba(11, 12, 14, 0.66);
+  outline: 1px solid rgba(236, 234, 230, 0.85);
+}
+
+/* Rule-of-thirds guides, visible only while dragging so they don't clutter. */
+.crop-rect__grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+  background-image:
+    linear-gradient(90deg, transparent calc(33.333% - 0.5px), rgba(236,234,230,0.34) calc(33.333% - 0.5px), rgba(236,234,230,0.34) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px)),
+    linear-gradient(90deg, transparent calc(66.666% - 0.5px), rgba(236,234,230,0.34) calc(66.666% - 0.5px), rgba(236,234,230,0.34) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px)),
+    linear-gradient(180deg, transparent calc(33.333% - 0.5px), rgba(236,234,230,0.34) calc(33.333% - 0.5px), rgba(236,234,230,0.34) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px)),
+    linear-gradient(180deg, transparent calc(66.666% - 0.5px), rgba(236,234,230,0.34) calc(66.666% - 0.5px), rgba(236,234,230,0.34) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px));
+}
+
+.cropper.is-dragging .crop-rect__grid,
+.cropper:focus-within .crop-rect__grid { opacity: 1; }
+
+/* SIGNATURE: the handles are trim marks, not the usual filled squares. Two
+   hairlines meeting past the corner, exactly as a print is marked for cutting. */
+.crop-mark {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0 solid var(--ink);
+  background: transparent;
+  cursor: pointer;
+}
+.crop-mark::before {
+  /* Generous invisible hit area — the visible mark is only a few pixels wide. */
+  content: "";
+  position: absolute;
+  inset: -12px;
+}
+.crop-mark--nw { top: -1px; left: -1px; border-top-width: 3px; border-left-width: 3px; cursor: nwse-resize; }
+.crop-mark--ne { top: -1px; right: -1px; border-top-width: 3px; border-right-width: 3px; cursor: nesw-resize; }
+.crop-mark--sw { bottom: -1px; left: -1px; border-bottom-width: 3px; border-left-width: 3px; cursor: nesw-resize; }
+.crop-mark--se { bottom: -1px; right: -1px; border-bottom-width: 3px; border-right-width: 3px; cursor: nwse-resize; }
+
+/* ══ Control rail ════════════════════════════════════════════════════════ */
+.rail {
+  border-left: 1px solid var(--edge);
+  background: var(--panel);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.rail::-webkit-scrollbar { width: 10px; }
+.rail::-webkit-scrollbar-thumb { background: var(--edge-hi); border-radius: 5px; border: 3px solid var(--panel); }
+
+.panel {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--edge);
+}
+
+.panel__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.panel__note {
+  margin: -6px 0 12px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+/* Dim a panel whose master switch is off, so it reads as inactive without
+   being disabled — the settings stay editable. */
+.panel.is-muted > *:not(.panel__title) { opacity: 0.4; }
+
+/* ══ Fields ══════════════════════════════════════════════════════════════ */
+.field { margin-bottom: 12px; }
+.field:last-child { margin-bottom: 0; }
+
+.field--split {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: end;
+}
+
+.field__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+}
+
+.field__note {
+  margin: 8px 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  word-break: break-word;
+}
+
+.field__label output {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--edge-hi);
+  border-radius: var(--r-sm);
+  background: var(--panel-in);
+  font-size: 13px;
+  transition: border-color var(--t-fast);
+}
+.input::placeholder { color: var(--ink-3); }
+.input:focus { border-color: var(--ink-2); outline-offset: 1px; }
+
+select.input { cursor: pointer; appearance: none; padding-right: 26px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-2) 50%),
+                    linear-gradient(135deg, var(--ink-2) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 52%, calc(100% - 9px) 52%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* ══ Range ═══════════════════════════════════════════════════════════════ */
+.range-field { display: block; margin-bottom: 12px; }
+.range-field:last-child { margin-bottom: 0; }
+.range-field--tight { margin-top: -6px; }
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--edge-hi);
+  border-radius: 1px;
+}
+input[type="range"]::-moz-range-track {
+  height: 2px;
+  background: var(--edge-hi);
+  border-radius: 1px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px; height: 12px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 0;
+  transition: transform var(--t-fast);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 0;
+}
+input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.25); }
+
+/* ══ Colour input ════════════════════════════════════════════════════════ */
+.swatch-field { display: block; }
+
+input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 46px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--edge-hi);
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 3px; }
+input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 2px; }
+input[type="color"]::-moz-color-swatch { border: 0; border-radius: 2px; }
+
+/* ══ Switch & checkbox ═══════════════════════════════════════════════════ */
+.switch { display: inline-flex; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+.switch__track {
+  position: relative;
+  width: 32px; height: 18px;
+  border-radius: 9px;
+  border: 1px solid var(--edge-hi);
+  background: var(--panel-in);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.switch__track::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  transition: transform var(--t-fast), background var(--t-fast);
+}
+.switch input:checked + .switch__track { background: var(--ink); border-color: var(--ink); }
+.switch input:checked + .switch__track::after { transform: translateX(14px); background: var(--void); }
+.switch input:focus-visible + .switch__track { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  cursor: pointer;
+  padding-bottom: 6px;
+}
+.check input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border: 1px solid var(--edge-hi);
+  border-radius: 3px;
+  background: var(--panel-in);
+  cursor: pointer;
+  display: grid;
+  place-content: center;
+}
+.check input:checked { background: var(--ink); border-color: var(--ink); }
+.check input:checked::after {
+  content: "";
+  width: 7px; height: 4px;
+  border: 2px solid var(--void);
+  border-top: 0; border-right: 0;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+/* ══ Chips (ratio presets) ═══════════════════════════════════════════════ */
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 5px 9px;
+  border: 1px solid var(--edge-hi);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+.chip:hover { color: var(--ink); border-color: var(--ink-3); }
+.chip[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--void);
+  font-weight: 500;
+}
+
+/* ══ Segmented ═══════════════════════════════════════════════════════════ */
+.segmented {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+  background: var(--panel-in);
+}
+.segmented .seg { flex: 1; padding: 5px 8px; }
+
+/* ══ Watermark position picker ═══════════════════════════════════════════ */
+/* A miniature of the image: five anchor points in the places they map to. */
+.grid-pick {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  width: 96px;
+  aspect-ratio: 4 / 3;
+  padding: 6px;
+  border: 1px solid var(--edge-hi);
+  border-radius: var(--r-sm);
+  background: var(--panel-in);
+}
+.grid-pick button {
+  border: 1px solid var(--edge-hi);
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.grid-pick button:hover { border-color: var(--ink-3); }
+.grid-pick button[aria-checked="true"] { background: var(--ink); border-color: var(--ink); }
+.grid-pick button[data-position="center"] {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 26px; height: 18px;
+  border-radius: 3px;
+  background: var(--panel);
+}
+.grid-pick button[data-position="center"][aria-checked="true"] { background: var(--ink); }
+
+/* ══ Swatch readout ══════════════════════════════════════════════════════ */
+.swatch-readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.swatch-readout button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px 3px 4px;
+  border: 1px solid var(--edge-hi);
+  border-radius: 20px;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: border-color var(--t-fast), color var(--t-fast);
+}
+.swatch-readout button:hover { border-color: var(--ink-2); color: var(--ink); }
+.swatch-readout i {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+/* ══ Rail footer ═════════════════════════════════════════════════════════ */
+.rail__foot {
+  padding: 16px 18px 28px;
+}
+.rail__foot p {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+
+/* ══ Responsive ══════════════════════════════════════════════════════════ */
+@media (max-width: 880px) {
+  body { overflow: auto; }
+
+  .workspace {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .stage {
+    min-height: 62vh;
+    padding: 20px 16px 64px;
+  }
+
+  .rail {
+    border-left: 0;
+    border-top: 1px solid var(--edge);
+    overflow: visible;
+  }
+
+  #previewCanvas,
+  .cropper img { max-height: 52vh; }
+
+  .masthead { padding: 0 12px; }
+  .privacy-note { display: none; }
+}
+
+@media (max-width: 460px) {
+  .masthead__sub { display: none; }
+  .stage__warning { bottom: 58px; font-size: 11.5px; }
+}
+
+/* ══ Motion ══════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
