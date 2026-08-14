@@ -49,7 +49,15 @@ frame dimmed. Zooming out stops at the point where the image still covers the
 frame — its shorter side — so no edge is ever exposed and the export can never
 contain whitespace.
 
-**Watermark.** Text, colour, opacity, inset, and one of five anchor positions.
+**Watermark.** Text, colour, opacity, inset, and one of seven anchor
+positions: the four corners, the two edge centres, and the middle.
+
+Set in **Bigola Display**, loaded from `assets/fonts/Bigola Display
+Regular.otf`. It is the one thing in the composition that does not use the
+selected body font — the caption still does, at the same size and weight. If
+the file is absent the watermark falls back to the body font and the Watermark
+panel says so, rather than letting a silent substitution reach the export. See
+`assets/fonts/README.md`.
 
 **Frame.** Border width, background colour, and a corner radius applied to the
 image. The outer corner radius follows the inner one plus the border width, so
@@ -78,14 +86,14 @@ js/
     color.js           hex/rgb conversion, luminance
     palette.js         median-cut colour extraction
     crop-geometry.js   crop rectangle maths, ratio presets, pan & zoom limits
-    text.js            the shared font specification
+    text.js            the shared font specification, watermark face loading
     layout.js          composition geometry
   ui/
     cropper.js         pointer-driven crop overlay, both gesture modes
     controls.js        generic control binding
 test/
-  logic.test.mjs       97 assertions, runs in Node
-  browser.test.mjs     53 assertions, runs in Playwright
+  logic.test.mjs       121 assertions, runs in Node
+  browser.test.mjs     67 assertions, runs in Playwright
   visual.mjs           renders a matrix of configurations to PNG
 ```
 
@@ -184,11 +192,13 @@ match is verified rather than assumed.
 
 ## Things worth knowing
 
-**No webfonts.** System stacks only. A font CDN would mean a third-party
-request on every page load, which would make the privacy claim in the header
-untrue, and it would block the first render. If you add one, await
-`document.fonts.ready` before rendering: `measureText` fails silently against
-an unloaded face and returns widths for the wrong glyphs.
+**No third-party fonts.** The body text uses system stacks, and the
+watermark's display face is served from this site's own `assets/fonts`. A font
+CDN would mean a third-party request on every page load, which would make the
+privacy claim in the header untrue. Either way the rule is the same: await
+`ensureFontsReady()` before the first render. `measureText` fails silently
+against an unloaded face and returns widths for the wrong glyphs, so the size
+clamp gets tuned to metrics that never appear on screen.
 
 **Very large images.** A 50-megapixel file decodes fine on desktop but can hit
 memory limits on mobile Safari. If you need to handle those, decode with

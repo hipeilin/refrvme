@@ -24,7 +24,13 @@ const browser = await chromium.launch({ executablePath: CHROME_PATH });
 const page = await browser.newPage({ viewport: { width: 1440, height: 940 } });
 
 const consoleErrors = [];
-page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+// Keep the source URL: a bare "failed to load resource" is unattributable,
+// and the tolerated-error filter below has to know which resource it was.
+page.on('console', (m) => {
+  if (m.type() !== 'error') return;
+  const where = m.location()?.url || '';
+  consoleErrors.push(where ? `${m.text()} @ ${where}` : m.text());
+});
 page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + e.message));
 
 await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -349,6 +355,143 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(300);
 
+// ── Watermark face ────────────────────────────────────────────────────────
+// The display face is an asset the deployment may or may not carry, so the
+// assertion is that the app tells the truth about which face it used — not
+// that the file is present.
+const faceState = await page.evaluate(async () => {
+  const { isWatermarkFontReady, WATERMARK_FONT } = await import('/js/lib/text.js');
+  return {
+    ready: isWatermarkFontReady(),
+    family: WATERMARK_FONT.family,
+    url: WATERMARK_FONT.url,
+    // document.fonts.check() answers true for a family it has never heard of
+    // (nothing needs loading to render in a fallback), so it cannot answer
+    // this. Measuring can: if the face is really there, a string set in it
+    // comes out a different width from the same string set in a family that
+    // certainly does not exist.
+    canvasHas: (() => {
+      const ctx = document.createElement('canvas').getContext('2d');
+      const sample = 'Handgloves 123';
+      ctx.font = `500 64px "${WATERMARK_FONT.family}", monospace`;
+      const real = ctx.measureText(sample).width;
+      ctx.font = '500 64px "NoSuchFaceAnywhere", monospace';
+      const absent = ctx.measureText(sample).width;
+      return Math.abs(real - absent) > 0.01;
+    })(),
+    note: document.getElementById('wmFontNote').textContent,
+  };
+});
+check('the display face state matches what canvas can use',
+  faceState.ready === faceState.canvasHas, JSON.stringify(faceState));
+check('the watermark note reports the face actually in use',
+  faceState.ready
+    ? faceState.note === `Set in ${faceState.family}.`
+    : faceState.note.includes('falls back'),
+  faceState.note);
+if (!faceState.ready) {
+  console.log(`  note  ${faceState.url} is absent; watermark is using the fallback face`);
+}
+
+// Whichever face is in play, the watermark must be measured in it — a size
+// clamped against the wrong metrics is how text ends up running off the edge.
+const measuredInFace = await page.evaluate(async () => {
+  const { fontStr } = await import('/js/lib/text.js');
+  return {
+    body: fontStr(40, 'sans'),
+    mark: fontStr(40, 'sans', 'watermark'),
+  };
+});
+check('watermark and caption keep the same size and weight',
+  measuredInFace.body.startsWith('500 40px') && measuredInFace.mark.startsWith('500 40px'),
+  JSON.stringify(measuredInFace));
+check('the display face leads the watermark stack when loaded',
+  faceState.ready
+    ? measuredInFace.mark.startsWith(`500 40px "${faceState.family}"`)
+    : measuredInFace.mark === measuredInFace.body,
+  JSON.stringify(measuredInFace));
+
+// ── Watermark position, including the two centred slots ───────────────────
+// Proof by pixels: render the bare crop with and without the watermark and
+// look at where the two differ. Anything else only tests that a button got a
+// class, not that the ink moved.
+async function inkCentroid(position) {
+  return page.evaluate(async (pos) => {
+    const { renderComposition } = await import('/js/render.js');
+    const { createStore, defaultOptions } = await import('/js/state.js');
+    void createStore;
+
+    const image = document.getElementById('cropImage');
+    const crop = { x: 0, y: 0, w: image.naturalWidth, h: image.naturalHeight };
+
+    const base = defaultOptions();
+    base.frame.on = false;
+    base.caption.on = false;
+    base.palette.on = false;
+    base.watermark.text = '▮▮▮▮▮▮';
+    base.watermark.color = '#FFFFFF';
+    base.watermark.alpha = 1;
+    base.watermark.position = pos;
+
+    const withMark = renderComposition({ image, crop, opts: base, outputWidth: 600 }).canvas;
+    const without = renderComposition({
+      image, crop, opts: { ...base, watermark: { ...base.watermark, on: false } }, outputWidth: 600,
+    }).canvas;
+
+    const a = withMark.getContext('2d').getImageData(0, 0, withMark.width, withMark.height).data;
+    const b = without.getContext('2d').getImageData(0, 0, without.width, without.height).data;
+
+    let sx = 0, sy = 0, n = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      const diff = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+      if (diff < 40) continue;
+      const px = (i / 4) % withMark.width;
+      const py = Math.floor((i / 4) / withMark.width);
+      sx += px; sy += py; n++;
+    }
+    return n ? { u: sx / n / withMark.width, v: sy / n / withMark.height, n } : null;
+  }, position);
+}
+
+const ink = {};
+for (const pos of ['tl', 'tc', 'tr', 'center', 'bl', 'bc', 'br']) {
+  ink[pos] = await inkCentroid(pos);
+}
+check('every position draws something', Object.values(ink).every((p) => p && p.n > 50),
+  JSON.stringify(ink));
+check('top-centre ink sits high and centred',
+  ink.tc.v < 0.25 && Math.abs(ink.tc.u - 0.5) < 0.05, JSON.stringify(ink.tc));
+check('bottom-centre ink sits low and centred',
+  ink.bc.v > 0.75 && Math.abs(ink.bc.u - 0.5) < 0.05, JSON.stringify(ink.bc));
+check('top-centre shares the top row with the top corners',
+  Math.abs(ink.tc.v - ink.tl.v) < 0.02 && Math.abs(ink.tc.v - ink.tr.v) < 0.02,
+  JSON.stringify({ tl: ink.tl, tc: ink.tc, tr: ink.tr }));
+check('bottom-centre shares the bottom row with the bottom corners',
+  Math.abs(ink.bc.v - ink.bl.v) < 0.02 && Math.abs(ink.bc.v - ink.br.v) < 0.02,
+  JSON.stringify({ bl: ink.bl, bc: ink.bc, br: ink.br }));
+check('the centred slots sit between the left and right ones',
+  ink.tl.u < ink.tc.u && ink.tc.u < ink.tr.u && ink.bl.u < ink.bc.u && ink.bc.u < ink.br.u,
+  JSON.stringify(ink));
+check('the middle slot is distinct from both centred edges',
+  ink.center.v > ink.tc.v + 0.2 && ink.center.v < ink.bc.v - 0.2, JSON.stringify(ink));
+
+// The picker must expose them too, or they are unreachable.
+await page.click('#wmPosition button[data-position="tc"]');
+await page.waitForTimeout(200);
+check('the picker selects top centre',
+  await page.evaluate(() =>
+    document.querySelector('#wmPosition button[data-position="tc"]').getAttribute('aria-checked') === 'true'));
+await page.click('#wmPosition button[data-position="bc"]');
+await page.waitForTimeout(200);
+check('the picker selects bottom centre',
+  await page.evaluate(() =>
+    document.querySelector('#wmPosition button[data-position="bc"]').getAttribute('aria-checked') === 'true'));
+check('selecting one position clears the others',
+  await page.$$eval('#wmPosition button[aria-checked="true"]', (els) => els.length) === 1);
+await page.screenshot({ path: `${SHOTS}/09-watermark-bc.png` });
+await page.click('#wmPosition button[data-position="br"]');
+await page.waitForTimeout(200);
+
 // ── Long text warning ─────────────────────────────────────────────────────
 await page.fill('#capCenter', 'A very long middle caption that will certainly collide with both sides');
 await page.fill('#capLeft', 'Also quite a long left caption here');
@@ -386,7 +529,13 @@ check('no horizontal overflow on mobile', overflowX <= 1, `overflow ${overflowX}
 await page.screenshot({ path: `${SHOTS}/07-mobile.png`, fullPage: false });
 
 // ── Console hygiene ───────────────────────────────────────────────────────
-const realErrors = consoleErrors.filter((e) => !/fonts\.(googleapis|gstatic)\.com/.test(e));
+// Two 404s are expected rather than broken: the page ships no favicon, and
+// the watermark's display face is an optional asset the app is built to fall
+// back from. Everything else counts.
+const tolerated = /favicon\.ico|Bigola%20Display/;
+const realErrors = consoleErrors.filter(
+  (e) => !/fonts\.(googleapis|gstatic)\.com/.test(e) && !tolerated.test(e),
+);
 check('no console errors', realErrors.length === 0, realErrors.slice(0, 4).join(' | '));
 
 await browser.close();

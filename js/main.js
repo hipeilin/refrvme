@@ -13,7 +13,7 @@
 import { createStore, defaultOptions, defaultSession } from './state.js';
 import { renderComposition, cropToCanvas, canvasToBlob } from './render.js';
 import { extractPaletteFromCanvas } from './lib/palette.js';
-import { ensureFontsReady } from './lib/text.js';
+import { ensureFontsReady, isWatermarkFontReady, WATERMARK_FONT } from './lib/text.js';
 import {
   largestFit,
   refitToRatio,
@@ -68,6 +68,7 @@ const el = {
   zoomRange: document.getElementById('zoomRange'),
   zoomReadout: document.getElementById('zoomReadout'),
   wmPosition: document.getElementById('wmPosition'),
+  wmFontNote: document.getElementById('wmFontNote'),
   fontPick: document.getElementById('fontPick'),
   recenterCrop: document.getElementById('recenterCrop'),
 
@@ -175,6 +176,26 @@ function refreshZoom() {
   const zoom = zoomFactorOf(session.crop, iw, ih, frameRatio());
   el.zoomRange.value = String(Math.round(Math.min(MAX_ZOOM, Math.max(1, zoom)) * 100));
   el.zoomReadout.textContent = `${zoom.toFixed(2)}×`;
+}
+
+/**
+ * Say which face the watermark is actually being drawn in.
+ *
+ * The display face is a file the deployment has to carry. When it is missing
+ * the watermark still renders — in the composition font — and saying so here
+ * is the difference between a deliberate fallback and a typeface that looks
+ * mysteriously wrong in the export.
+ */
+function reportWatermarkFont() {
+  if (isWatermarkFontReady()) {
+    el.wmFontNote.textContent = `Set in ${WATERMARK_FONT.family}.`;
+    el.wmFontNote.classList.remove('field__note--warn');
+    return;
+  }
+  el.wmFontNote.textContent =
+    `${WATERMARK_FONT.family} could not be loaded from ${decodeURI(WATERMARK_FONT.url)} — ` +
+    'the watermark falls back to the composition font.';
+  el.wmFontNote.classList.add('field__note--warn');
 }
 
 function showWarnings(list) {
@@ -619,6 +640,7 @@ window.addEventListener('resize', () => cropper.sync());
   // no render may happen until the faces are in.
   await ensureFontsReady();
   fontsReady = true;
+  reportWatermarkFont();
   stageTabs.refresh();
   syncCropMode();
   scheduleRender();

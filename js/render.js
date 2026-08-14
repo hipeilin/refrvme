@@ -108,15 +108,26 @@ export function cropToCanvas(image, crop, outputWidth) {
 
 /**
  * Watermark anchor positions, as fractions of the cropped image plus a margin.
+ *
+ * Seven slots: the four corners, the two edge centres, and the middle. The
+ * centred slots take `align: 'center'`, so the margin only sets their distance
+ * from the edge they hug — a centred string is never pushed off-axis by it.
+ *
+ * Exported for the unit tests: placement is pure arithmetic and worth pinning
+ * down exactly rather than eyeballing in a screenshot.
+ *
  * @param {string} pos
  * @param {number} w
  * @param {number} h
  * @param {number} margin
+ * @returns {{x:number, y:number, align:string, anchor:string}}
  */
-function watermarkAnchor(pos, w, h, margin) {
+export function watermarkAnchor(pos, w, h, margin) {
   switch (pos) {
     case 'tl': return { x: margin, y: margin, align: 'left', anchor: 'top' };
+    case 'tc': return { x: w / 2, y: margin, align: 'center', anchor: 'top' };
     case 'tr': return { x: w - margin, y: margin, align: 'right', anchor: 'top' };
+    case 'bc': return { x: w / 2, y: h - margin, align: 'center', anchor: 'bottom' };
     case 'br': return { x: w - margin, y: h - margin, align: 'right', anchor: 'bottom' };
     case 'center': return { x: w / 2, y: h / 2, align: 'center', anchor: 'middle' };
     case 'bl':
@@ -158,15 +169,18 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
   const margin = metric * opts.watermark.marginPct;
 
   const mctx = measurer();
-  const measure = (text, px) => {
-    mctx.font = fontStr(px, opts.font);
+  const measure = (text, px, role = 'text') => {
+    mctx.font = fontStr(px, opts.font, role);
     return mctx.measureText(text).width;
   };
 
   const sized = resolveTextSize(measure, {
     cropW,
     metric,
-    strings: [opts.watermark.on ? opts.watermark.text : '', ...captionSlots],
+    strings: [
+      { text: opts.watermark.on ? opts.watermark.text : '', role: 'watermark' },
+      ...captionSlots,
+    ],
     hexStrings,
     cell,
     marginPx: margin,
@@ -180,7 +194,7 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
   // ---- 3. Watermark, burned into the cropped image -------------------------
   if (opts.watermark.on && opts.watermark.text.trim()) {
     const ictx = imgCanvas.getContext('2d');
-    ictx.font = fontStr(textPx, opts.font);
+    ictx.font = fontStr(textPx, opts.font, 'watermark');
     ictx.fillStyle = opts.watermark.color;
     ictx.globalAlpha = opts.watermark.alpha;
 
@@ -265,7 +279,9 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
 
   // ---- 7. Caption row -----------------------------------------------------
   if (L.showCaption) {
-    ctx.font = fontStr(textPx, opts.font); // identical string to the watermark
+    // Same size and weight as the watermark; the family differs by design,
+    // the watermark having its own display face.
+    ctx.font = fontStr(textPx, opts.font);
     ctx.fillStyle = opts.caption.color;
 
     const slots = [

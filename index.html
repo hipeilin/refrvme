@@ -139,15 +139,18 @@
         <label class="field__label" for="wmText">Text</label>
         <input class="input" id="wmText" type="text" data-bind="watermark.text" maxlength="80"
                placeholder="© your name">
+        <p class="field__note" id="wmFontNote" role="status">Set in Bigola Display.</p>
       </div>
 
       <div class="field">
         <span class="field__label">Position</span>
         <div class="grid-pick" id="wmPosition" role="radiogroup" aria-label="Watermark position">
           <button type="button" data-position="tl" role="radio" aria-checked="false" aria-label="Top left"></button>
+          <button type="button" data-position="tc" role="radio" aria-checked="false" aria-label="Top centre"></button>
           <button type="button" data-position="tr" role="radio" aria-checked="false" aria-label="Top right"></button>
           <button type="button" data-position="center" role="radio" aria-checked="false" aria-label="Centre"></button>
           <button type="button" data-position="bl" role="radio" aria-checked="false" aria-label="Bottom left"></button>
+          <button type="button" data-position="bc" role="radio" aria-checked="false" aria-label="Bottom centre"></button>
           <button type="button" data-position="br" role="radio" aria-checked="true" aria-label="Bottom right"></button>
         </div>
       </div>

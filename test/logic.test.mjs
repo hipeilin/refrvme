@@ -23,8 +23,20 @@ import {
   zoomFactorOf,
   MAX_ZOOM,
 } from '../js/lib/crop-geometry.js';
-import { resolveTextSize, metricOf, HEX_SCALE, HEX_COLUMN_FILL, TEXT } from '../js/lib/text.js';
+import {
+  resolveTextSize,
+  metricOf,
+  fontStr,
+  watermarkStack,
+  isWatermarkFontReady,
+  FONT_STACKS,
+  WATERMARK_FONT,
+  HEX_SCALE,
+  HEX_COLUMN_FILL,
+  TEXT,
+} from '../js/lib/text.js';
 import { computeLayout, swatchMetrics, captionsCollide } from '../js/lib/layout.js';
+import { watermarkAnchor } from '../js/render.js';
 
 let passed = 0;
 let failed = 0;
@@ -259,6 +271,63 @@ group('text sizing');
   ok('no false overflow when there is room', roomy.overflow === false);
 }
 {
+  // The watermark is drawn in its own display face, which is wider per
+  // character than the body stack. The clamp has to measure it in that face or
+  // it will pick a size the watermark cannot fit into.
+  const cropW = 900;
+  const metric = metricOf(900, 900);
+  // A measurer where the watermark face is twice as wide as the body face.
+  const byRole = (text, px, role) => text.length * px * (role === 'watermark' ? 1.1 : 0.55);
+
+  const seen = [];
+  const spy = (text, px, role) => { seen.push(role); return byRole(text, px, role); };
+  resolveTextSize(spy, {
+    cropW, metric, strings: [{ text: '© Jane', role: 'watermark' }, 'Left'],
+    hexStrings: [], cell: cropW, marginPx: 0,
+  });
+  ok('the watermark is measured as a watermark', seen.includes('watermark'), seen.join(','));
+  ok('caption slots are measured as body text', seen.includes('text'), seen.join(','));
+
+  // Same string, same length: the wider face must be the one that forces the
+  // shrink, so tagging it changes the result.
+  const long = 'x'.repeat(60);
+  const asWatermark = resolveTextSize(byRole, {
+    cropW, metric, strings: [{ text: long, role: 'watermark' }], hexStrings: [], cell: cropW, marginPx: 0,
+  });
+  const asBody = resolveTextSize(byRole, {
+    cropW, metric, strings: [long], hexStrings: [], cell: cropW, marginPx: 0,
+  });
+  ok('the wider face shrinks further', asWatermark.px < asBody.px,
+    `${asWatermark.px} vs ${asBody.px}`);
+  ok('the watermark still fits its budget',
+    byRole(long, asWatermark.px, 'watermark') <= cropW + 0.001,
+    String(byRole(long, asWatermark.px, 'watermark')));
+
+  // Bare strings must keep working — most callers never name a face.
+  const plain = resolveTextSize(fakeMeasure, {
+    cropW, metric, strings: ['© Jane', 'Left'], hexStrings: [], cell: cropW, marginPx: 0,
+  });
+  close('bare strings still resolve', plain.px, metric * TEXT.sizePct, 1e-9);
+}
+{
+  // fontStr is the only place a font string is built, and the watermark's is
+  // the only one that may name a different family.
+  const body = fontStr(40, 'serif');
+  const mark = fontStr(40, 'serif', 'watermark');
+  ok('body text uses the picked stack', body.includes('Georgia'), body);
+  ok('the two share weight and size',
+    body.startsWith(`${TEXT.weight} 40px`) && mark.startsWith(`${TEXT.weight} 40px`),
+    `${body} / ${mark}`);
+  // Outside a browser the face can never have loaded, so the stack must be the
+  // fallback — proving the watermark degrades to the picked font rather than
+  // naming a family that is not there.
+  ok('missing face falls back to the picked stack', mark === body, mark);
+  ok('the face is reported as unloaded', isWatermarkFontReady() === false);
+  ok('the watermark stack is the fallback', watermarkStack('mono') === FONT_STACKS.mono);
+  ok('the font file path is declared', /Bigola/.test(WATERMARK_FONT.url), WATERMARK_FONT.url);
+  ok('the font url is percent-encoded', !/ /.test(WATERMARK_FONT.url), WATERMARK_FONT.url);
+}
+{
   // Ten swatches make each column narrow. The hex labels must give way — but
   // the caption/watermark size must NOT, or adding a swatch would silently
   // resize the user's caption.
@@ -283,6 +352,47 @@ group('text sizing');
     cropW: 10, metric: 10, strings: ['y'.repeat(500)], hexStrings: [], cell: 10, marginPx: 4,
   });
   ok('never goes below the floor', tiny.px >= TEXT.minPx);
+}
+
+// ------------------------------------------------------ watermark placing ---
+group('watermark placement');
+{
+  const w = 1000, h = 800, margin = 40;
+  const at = (pos) => watermarkAnchor(pos, w, h, margin);
+
+  // The four corners: inset from both edges, and anchored so the text grows
+  // inward rather than off the picture.
+  ok('tl hugs the top left',
+    at('tl').x === 40 && at('tl').y === 40 && at('tl').align === 'left' && at('tl').anchor === 'top');
+  ok('tr hugs the top right',
+    at('tr').x === 960 && at('tr').y === 40 && at('tr').align === 'right' && at('tr').anchor === 'top');
+  ok('bl hugs the bottom left',
+    at('bl').x === 40 && at('bl').y === 760 && at('bl').align === 'left' && at('bl').anchor === 'bottom');
+  ok('br hugs the bottom right',
+    at('br').x === 960 && at('br').y === 760 && at('br').align === 'right' && at('br').anchor === 'bottom');
+
+  // The two edge centres: horizontally centred, vertically inset by the margin.
+  const tc = at('tc');
+  ok('tc sits on the horizontal centre line', tc.x === 500 && tc.align === 'center', JSON.stringify(tc));
+  ok('tc is inset from the top by the margin', tc.y === 40 && tc.anchor === 'top', JSON.stringify(tc));
+  const bc = at('bc');
+  ok('bc sits on the horizontal centre line', bc.x === 500 && bc.align === 'center', JSON.stringify(bc));
+  ok('bc is inset from the bottom by the margin', bc.y === 760 && bc.anchor === 'bottom', JSON.stringify(bc));
+
+  // The centred slots share the corners' vertical inset, so switching between
+  // "bottom left" and "bottom centre" slides the text sideways only.
+  ok('tc shares the top row with the top corners', tc.y === at('tl').y && tc.y === at('tr').y);
+  ok('bc shares the bottom row with the bottom corners', bc.y === at('bl').y && bc.y === at('br').y);
+
+  // The middle ignores the margin entirely — it is centred on both axes.
+  const mid = at('center');
+  ok('centre is centred on both axes',
+    mid.x === 500 && mid.y === 400 && mid.anchor === 'middle', JSON.stringify(mid));
+
+  // An unknown key must land somewhere sensible rather than at NaN.
+  const fallback = at('nonsense');
+  ok('an unknown position falls back to bottom left',
+    fallback.x === 40 && fallback.y === 760, JSON.stringify(fallback));
 }
 
 // ----------------------------------------------------------------- layout ---
