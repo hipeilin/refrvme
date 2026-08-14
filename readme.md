@@ -5,7 +5,7 @@ frame, caption it, and print its colour palette underneath. Everything runs in
 your browser with the Canvas API. No upload, no server, no analytics.
 
 ![A photograph mounted in a white frame, with a row of colour swatches and hex
-codes below it and a three-part caption along the bottom](assets/example.png)
+codes below it and a three-part caption along the bottom](docs/example.png)
 
 ## Run it locally
 
@@ -87,14 +87,7 @@ test/
   logic.test.mjs       97 assertions, runs in Node
   browser.test.mjs     53 assertions, runs in Playwright
   visual.mjs           renders a matrix of configurations to PNG
-assets/
-  example.png          the screenshot at the top of this file
 ```
-
-There is no separate documentation site. This README covers setup and the
-design decisions; the reasoning behind individual choices lives in comments
-next to the code it explains. `js/lib/text.js` and `js/lib/layout.js` are the
-two worth reading first if you plan to change how anything is positioned.
 
 ### The pipeline
 
