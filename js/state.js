@@ -28,10 +28,10 @@ export function defaultOptions() {
 
     watermark: {
       on: true,
-      text: '© your name',
+      text: '©\nmade by\nMisha Smirnov',
       color: '#FFFFFF',
-      alpha: 0.55,
-      position: 'br', // tl | tc | tr | bl | bc | br | center
+      alpha: 1,
+      position: 'bc', // tl | tc | tr | bl | bc | br | center
       /** Inset from the image edge, as a fraction of metric. */
       marginPct: 0.03,
     },

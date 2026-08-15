@@ -174,7 +174,7 @@ function refreshZoom() {
   const { naturalWidth: iw, naturalHeight: ih } = session.image;
   const zoom = zoomFactorOf(session.crop, iw, ih, frameRatio());
   el.zoomRange.value = String(Math.round(Math.min(MAX_ZOOM, Math.max(1, zoom)) * 100));
-  el.zoomReadout.textContent = `${zoom.toFixed(2)}×`;
+  el.zoomReadout.textContent = `${zoom.toFixed(2)}`;
 }
 
 function showWarnings(list) {
