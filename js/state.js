@@ -14,6 +14,8 @@ export function defaultOptions() {
     crop: {
       ratioId: 'portrait45',
       orientation: 'portrait', // 'portrait' | 'landscape'
+      /** Ruler overlay in the crop view. 'off' | 'thirds' | 'golden' | 'center'. */
+      guide: 'thirds',
     },
 
     watermark: {

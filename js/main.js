@@ -60,6 +60,7 @@ const el = {
   rail: document.getElementById('rail'),
   ratioChips: document.getElementById('ratioChips'),
   orientation: document.getElementById('orientation'),
+  cropGuidePick: document.getElementById('cropGuidePick'),
   wmPresetPick: document.getElementById('wmPresetPick'),
   wmPosition: document.getElementById('wmPosition'),
   wmFontPick: document.getElementById('wmFontPick'),
@@ -350,6 +351,17 @@ const orientationGroup = bindButtonGroup({
 
 /** Button groups that the reset handler needs to repaint. */
 const buttonGroups = [];
+
+buttonGroups.push(bindButtonGroup({
+  container: el.cropGuidePick,
+  attr: 'guide',
+  read: () => store.get().crop.guide,
+  // Guides are a crop-view overlay only — they never touch the composed
+  // image, so no scheduleRender() here (unlike every other button group).
+  onPick(value) {
+    store.update((draft) => { draft.crop.guide = value; });
+  },
+}));
 
 buttonGroups.push(bindButtonGroup({
   container: el.wmPresetPick,

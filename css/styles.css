@@ -377,12 +377,22 @@ button, input, select { font: inherit; color: inherit; }
   outline: 1px solid rgba(236, 234, 230, 0.85);
 }
 
-/* Rule-of-thirds guides, visible only while dragging so they don't clutter. */
+/* Ruler overlay. Which guide is active is picked in the Crop panel's
+   #cropGuidePick segmented control; bindButtonGroup() (ui/controls.js)
+   already keeps the active button's aria-checked in sync on every click and
+   on "Reset all", so :has() can read that directly with no extra JS wiring.
+   Each guide is a full background-image swap rather than a shared base +
+   modifier, because a hairline pair's position (33.3%/66.6% vs 38.2%/61.8%
+   vs 50%) is baked into the gradient stops themselves. */
 .crop-rect__grid {
   position: absolute;
   inset: 0;
   opacity: 0;
   transition: opacity var(--t-fast);
+}
+
+body:has(#cropGuidePick button[data-guide="thirds"][aria-checked="true"]) .crop-rect__grid {
+  opacity: 1;
   background-image:
     linear-gradient(90deg, transparent calc(33.333% - 0.5px), rgba(236,234,230,0.34) calc(33.333% - 0.5px), rgba(236,234,230,0.34) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px)),
     linear-gradient(90deg, transparent calc(66.666% - 0.5px), rgba(236,234,230,0.34) calc(66.666% - 0.5px), rgba(236,234,230,0.34) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px)),
@@ -390,8 +400,23 @@ button, input, select { font: inherit; color: inherit; }
     linear-gradient(180deg, transparent calc(66.666% - 0.5px), rgba(236,234,230,0.34) calc(66.666% - 0.5px), rgba(236,234,230,0.34) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px));
 }
 
-.cropper.is-dragging .crop-rect__grid,
-.cropper:focus-within .crop-rect__grid { opacity: 1; }
+/* 1/φ² ≈ 0.382 and 1/φ ≈ 0.618, φ = 1.618 — the golden section applied to
+   each axis independently, same construction as the thirds lines above. */
+body:has(#cropGuidePick button[data-guide="golden"][aria-checked="true"]) .crop-rect__grid {
+  opacity: 1;
+  background-image:
+    linear-gradient(90deg, transparent calc(38.197% - 0.5px), rgba(236,234,230,0.34) calc(38.197% - 0.5px), rgba(236,234,230,0.34) calc(38.197% + 0.5px), transparent calc(38.197% + 0.5px)),
+    linear-gradient(90deg, transparent calc(61.803% - 0.5px), rgba(236,234,230,0.34) calc(61.803% - 0.5px), rgba(236,234,230,0.34) calc(61.803% + 0.5px), transparent calc(61.803% + 0.5px)),
+    linear-gradient(180deg, transparent calc(38.197% - 0.5px), rgba(236,234,230,0.34) calc(38.197% - 0.5px), rgba(236,234,230,0.34) calc(38.197% + 0.5px), transparent calc(38.197% + 0.5px)),
+    linear-gradient(180deg, transparent calc(61.803% - 0.5px), rgba(236,234,230,0.34) calc(61.803% - 0.5px), rgba(236,234,230,0.34) calc(61.803% + 0.5px), transparent calc(61.803% + 0.5px));
+}
+
+body:has(#cropGuidePick button[data-guide="center"][aria-checked="true"]) .crop-rect__grid {
+  opacity: 1;
+  background-image:
+    linear-gradient(90deg, transparent calc(50% - 0.5px), rgba(236,234,230,0.5) calc(50% - 0.5px), rgba(236,234,230,0.5) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    linear-gradient(180deg, transparent calc(50% - 0.5px), rgba(236,234,230,0.5) calc(50% - 0.5px), rgba(236,234,230,0.5) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+}
 
 /* SIGNATURE: the handles are trim marks, not the usual filled squares. Two
    hairlines meeting past the corner, exactly as a print is marked for cutting. */
