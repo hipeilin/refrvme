@@ -93,7 +93,10 @@ for (const c of CASES) {
   for (const [k, v] of Object.entries(c.set || {})) await setBound(k, v);
   for (const [k, v] of Object.entries(c.colors || {})) await setBound(k, v);
   for (const k of c.off || []) await setBound(k, false);
-  if (c.watermark) await page.fill('#wmText', c.watermark);
+  if (c.watermark) {
+    await page.click('button[data-preset="custom"]');
+    await page.fill('#wmText', c.watermark);
+  }
 
   await page.waitForTimeout(350);
 

@@ -114,6 +114,42 @@ export function splitLines(text) {
 }
 
 /**
+ * Fixed copy for the built-in watermark presets. Keyed by `watermark.preset`;
+ * 'custom' isn't in here — it reads from `watermark.customText` instead.
+ */
+export const WATERMARK_PRESETS = {
+  day: 'DVY DREMR',
+  set: 'LIGHT CHVSR',
+  night: 'NIGHT CRWLR',
+};
+
+/**
+ * Build the watermark's drawn text from its settings.
+ *
+ * The first line comes from the preset (or `customText` when the preset is
+ * 'custom'); the Instagram tag and year are each optional and, when present,
+ * become their own trailing line.
+ *
+ * @param {object} watermark watermark slice of options (see state.js)
+ * @returns {string} newline-joined text, ready for splitLines
+ */
+export function composeWatermarkText(watermark) {
+  const { preset = 'day', customText = '', tag = '', year = '' } = watermark;
+
+  const lines = preset === 'custom'
+    ? splitLines(customText)
+    : WATERMARK_PRESETS[preset] ? [WATERMARK_PRESETS[preset]] : [];
+
+  const handle = tag.trim().replace(/^@+/, '');
+  if (handle) lines.push(`@${handle}`);
+
+  const yearLine = year.trim();
+  if (yearLine) lines.push(yearLine);
+
+  return lines.join('\n');
+}
+
+/**
  * Width of the widest line in a block.
  *
  * The size clamp cares about the widest line, not the total character count —

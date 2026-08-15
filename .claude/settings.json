@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(node test/logic.test.mjs 2>&1)",
+      "Bash(where node *)",
+      "Bash(where python *)",
+      "Bash(chromium-cli --help)",
+      "PowerShell(python --version 2>&1)"
+    ]
+  }
+}

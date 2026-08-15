@@ -119,10 +119,30 @@
       </h2>
 
       <div class="field">
-        <label class="field__label" for="wmText">Text</label>
-        <textarea class="input input--area" id="wmText" data-bind="watermark.text"
+        <span class="field__label">Text</span>
+        <div class="segmented segmented--wrap" id="wmPresetPick" role="radiogroup" aria-label="Watermark preset">
+          <button type="button" class="seg" data-preset="day" role="radio" aria-checked="true">Day</button>
+          <button type="button" class="seg" data-preset="set" role="radio" aria-checked="false">Set</button>
+          <button type="button" class="seg" data-preset="night" role="radio" aria-checked="false">Night</button>
+          <button type="button" class="seg" data-preset="custom" role="radio" aria-checked="false">Custom</button>
+        </div>
+      </div>
+
+      <div class="field" id="wmCustomTextField">
+        <label class="field__label" for="wmText">Custom text</label>
+        <textarea class="input input--area" id="wmText" data-bind="watermark.customText"
                   rows="2" maxlength="200" placeholder="© your name&#10;second line"></textarea>
         <p class="field__note">Press Enter for a new line.</p>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="wmTag">Tag</label>
+        <input class="input" type="text" id="wmTag" data-bind="watermark.tag" maxlength="60" placeholder="instagram username">
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="wmYear">Year</label>
+        <input class="input" type="text" id="wmYear" data-bind="watermark.year" maxlength="20" placeholder="2026">
       </div>
 
       <div class="field">
@@ -164,6 +184,11 @@
       <label class="range-field" id="lineHeightField">
         <span class="field__label">Line spacing <output data-for="watermark.lineHeight"></output></span>
         <input type="range" data-bind="watermark.lineHeight" min="0.9" max="2" step="0.05">
+      </label>
+
+      <label class="range-field">
+        <span class="field__label">Letter spacing <output data-for="watermark.letterSpacing"></output></span>
+        <input type="range" data-bind="watermark.letterSpacing" min="0" max="0.5" step="0.01" data-format="percent">
       </label>
 
       <div class="field">

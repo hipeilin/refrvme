@@ -18,10 +18,20 @@ export function defaultOptions() {
 
     watermark: {
       on: true,
-      /** May contain newlines; each line is drawn separately. */
-      text: '© your name',
+      /**
+       * Which line the watermark's first line comes from. 'day' | 'set' |
+       * 'night' select a fixed preset caption; 'custom' uses `customText`
+       * instead. See WATERMARK_PRESETS in lib/text.js for the preset copy.
+       */
+      preset: 'day',
+      /** Free text used only when `preset` is 'custom'. May contain newlines. */
+      customText: '© your name',
+      /** Instagram handle, without the leading '@'. Adds its own line when set. */
+      tag: '@yung.pei.frames',
+      /** Adds its own line when set. */
+      year: '2026',
       color: '#FFFFFF',
-      alpha: 0.55,
+      alpha: 1,
       /** Typeface for the watermark. Independent of the hex labels'. */
       font: 'display',
       /**
@@ -29,17 +39,19 @@ export function defaultOptions() {
        * metric with no adjustment; anything else is a deliberate nudge, which
        * a display face usually needs to sit right against the image.
        */
-      scale: 1,
+      scale: 0.6,
       /** Line spacing for multi-line watermarks, as a multiple of text size. */
       lineHeight: 1.25,
+      /** Extra gap between letters, as a multiple of text size. 0 is normal tracking. */
+      letterSpacing: 0.5,
       /** 3x3 grid: <row><col>, rows t|m|b, columns l|c|r. */
-      position: 'br',
+      position: 'bc',
       /** Inset from the image edge, as a fraction of metric. */
-      marginPct: 0.03,
+      marginPct: 0.05,
     },
 
     frame: {
-      on: true,
+      on: false,
       /** Frame width, as a fraction of metric. */
       borderPct: 0.035,
       /**
@@ -53,7 +65,7 @@ export function defaultOptions() {
     },
 
     palette: {
-      on: true,
+      on: false,
       count: 5,
       showHex: true,
       /**
@@ -69,8 +81,8 @@ export function defaultOptions() {
     export: {
       format: 'image/png',
       quality: 0.92,
-      /** Longest edge of the exported crop; 0 means "use the original size". */
-      maxWidth: 0,
+      /** Width of the exported crop in px; height follows its aspect ratio. 0 means "use the original size". */
+      maxWidth: 1080,
     },
   };
 }

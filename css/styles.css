@@ -222,7 +222,16 @@ button, input, select { font: inherit; color: inherit; }
 #previewCanvas {
   display: block;
   max-width: 100%;
-  max-height: calc(100vh - var(--head-h) - 150px);
+  /* `max-height: 100%` looks like the "correct" fix here, but a <canvas> is a
+     replaced element, and replaced elements don't reliably resolve a
+     percentage max-height through a flex chain whose sizes come from
+     content (not an explicit height) — it silently computes to "none" in
+     practice, so the canvas renders at full intrinsic size and blows out
+     `.stage`. An absolute budget is the one that actually holds; 210px
+     covers `.stage`'s padding (96px) + `.stage__view`'s gap (12px) +
+     `.stage__meta`'s line, with slack for the frame border and palette bar
+     both being on at once.  */
+  max-height: calc(100vh - var(--head-h) - 210px);
   width: auto;
   height: auto;
   object-fit: contain;
@@ -352,7 +361,8 @@ button, input, select { font: inherit; color: inherit; }
 .cropper img {
   display: block;
   max-width: 100%;
-  max-height: calc(100vh - var(--head-h) - 150px);
+  /* See #previewCanvas for why this is an absolute budget, not a percentage. */
+  max-height: calc(100vh - var(--head-h) - 210px);
   width: auto;
   height: auto;
   opacity: 0.55;               /* dim the parts being cropped away */

@@ -60,6 +60,7 @@ const el = {
   rail: document.getElementById('rail'),
   ratioChips: document.getElementById('ratioChips'),
   orientation: document.getElementById('orientation'),
+  wmPresetPick: document.getElementById('wmPresetPick'),
   wmPosition: document.getElementById('wmPosition'),
   wmFontPick: document.getElementById('wmFontPick'),
   hexFontPick: document.getElementById('hexFontPick'),
@@ -349,6 +350,17 @@ const orientationGroup = bindButtonGroup({
 
 /** Button groups that the reset handler needs to repaint. */
 const buttonGroups = [];
+
+buttonGroups.push(bindButtonGroup({
+  container: el.wmPresetPick,
+  attr: 'preset',
+  read: () => store.get().watermark.preset,
+  onPick(value) {
+    store.update((draft) => { draft.watermark.preset = value; });
+    controls.refresh(); // toggles the custom-text field's visibility
+    scheduleRender();
+  },
+}));
 
 buttonGroups.push(bindButtonGroup({
   container: el.wmPosition,

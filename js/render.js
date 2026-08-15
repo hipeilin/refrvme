@@ -20,7 +20,7 @@
 import { rgbToHex, hexToRgb, luminance } from './lib/color.js';
 import {
   fontStr, resolveWatermarkSize, resolveHexSize, metricOf, splitLines,
-  DEFAULT_LINE_HEIGHT,
+  composeWatermarkText, DEFAULT_LINE_HEIGHT,
 } from './lib/text.js';
 import { computeLayout, swatchMetrics } from './lib/layout.js';
 
@@ -77,10 +77,18 @@ function drawText(ctx, text, x, y, anchor) {
  * @param {number} y
  * @param {'top'|'middle'|'bottom'} anchor
  * @param {number} lineStep vertical distance between baselines, in px
+ * @param {number} [firstLineLetterSpacingPx] tracking applied to line 0 only —
+ *        the preset/custom caption line, not the tag or year lines under it
  */
-function drawTextBlock(ctx, lines, x, y, anchor, lineStep) {
+function drawTextBlock(ctx, lines, x, y, anchor, lineStep, firstLineLetterSpacingPx = 0) {
   if (!lines.length) return;
+
+  // `letterSpacing` is a context property, not a fillText argument, so it has
+  // to be re-armed before every measurement or draw that should use it.
+  const armSpacing = (i) => { ctx.letterSpacing = `${i === 0 ? firstLineLetterSpacingPx : 0}px`; };
+
   if (lines.length === 1) {
+    armSpacing(0);
     drawText(ctx, lines[0], x, y, anchor);
     return;
   }
@@ -89,7 +97,9 @@ function drawTextBlock(ctx, lines, x, y, anchor, lineStep) {
 
   // Ink extents of the outer lines. Interior lines are spaced by lineStep and
   // never affect where the block as a whole sits.
+  armSpacing(0);
   const firstAscent = ctx.measureText(lines[0] || 'X').actualBoundingBoxAscent || 0;
+  armSpacing(lines.length - 1);
   const lastMetrics = ctx.measureText(lines[lines.length - 1] || 'X');
   const lastDescent = lastMetrics.actualBoundingBoxDescent || 0;
 
@@ -103,6 +113,7 @@ function drawTextBlock(ctx, lines, x, y, anchor, lineStep) {
 
   lines.forEach((line, i) => {
     if (!line) return; // interior blank line: consumes space, draws nothing
+    armSpacing(i);
     ctx.fillText(line, x, firstBaseline + i * lineStep);
   });
 }
@@ -216,11 +227,27 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
     return mctx.measureText(text).width;
   };
 
+  // Preset + custom text + tag + year, each their own line — see lib/text.js.
+  const watermarkText = opts.watermark.on ? composeWatermarkText(opts.watermark) : '';
+
+  // Letter spacing applies to the caption line only (not the tag/year lines
+  // under it), and widens it by (chars - 1) gaps — the size clamp needs to
+  // measure that too, or a widely tracked watermark could overflow. Kept as a
+  // separate wrapper rather than baked into `measure` because the hex labels
+  // below share `measure` and must NOT be tracked the same way.
+  const firstLine = splitLines(watermarkText)[0] || '';
+  const letterSpacingEm = opts.watermark.letterSpacing || 0;
+  const measureWatermark = (text, px, fontKey) => {
+    const width = measure(text, px, fontKey);
+    if (text !== firstLine || text.length <= 1) return width;
+    return width + letterSpacingEm * px * (text.length - 1);
+  };
+
   // The watermark and the hex labels are sized independently — see text.js.
-  const wm = resolveWatermarkSize(measure, {
+  const wm = resolveWatermarkSize(measureWatermark, {
     cropW,
     metric,
-    text: opts.watermark.on ? opts.watermark.text : '',
+    text: watermarkText,
     font: opts.watermark.font,
     scale: opts.watermark.scale,
     marginPx: margin,
@@ -239,7 +266,7 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
   }
 
   // ---- 3. Watermark, burned into the cropped image -------------------------
-  if (opts.watermark.on && splitLines(opts.watermark.text).length) {
+  if (opts.watermark.on && splitLines(watermarkText).length) {
     const ictx = imgCanvas.getContext('2d');
     // `scale` is 1 by default: the watermark is drawn at its base fraction of
     // metric with no adjustment. It exists because two faces at the same pixel
@@ -253,9 +280,13 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
     const a = watermarkAnchor(opts.watermark.position, cropW, cropH, margin);
     ictx.textAlign = a.align;
 
-    const lines = splitLines(opts.watermark.text);
+    const lines = splitLines(watermarkText);
     const lineStep = wmPx * (opts.watermark.lineHeight ?? DEFAULT_LINE_HEIGHT);
-    drawTextBlock(ictx, lines, a.x, a.y, a.anchor, lineStep);
+    // A native context property (Chrome/Firefox 2023+, Safari 17.4+) rather
+    // than hand-spacing each glyph: it also feeds ctx.measureText, so the
+    // block's ink-bounds anchoring stays accurate with tracking applied.
+    // drawTextBlock arms it for line 0 only — the caption, not tag/year.
+    drawTextBlock(ictx, lines, a.x, a.y, a.anchor, lineStep, letterSpacingEm * wmPx);
 
     ictx.globalAlpha = 1;
   }

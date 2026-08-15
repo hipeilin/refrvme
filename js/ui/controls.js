@@ -11,7 +11,7 @@
 
 import { RATIO_PRESETS, ratioLabel } from '../lib/crop-geometry.js';
 import { rgbToHex } from '../lib/color.js';
-import { splitLines } from '../lib/text.js';
+import { splitLines, composeWatermarkText } from '../lib/text.js';
 
 /** Read `obj.a.b` from a dotted path. */
 function getPath(obj, path) {
@@ -29,9 +29,10 @@ function setPath(obj, path, value) {
 /**
  * Show or hide controls that only apply in certain configurations.
  *
- * Quality does nothing for PNG; line spacing does nothing until the watermark
- * has a second line. Leaving them visible invites the user to drag a slider
- * and see no change.
+ * Quality does nothing for PNG; the custom text field is meaningless unless
+ * the "Custom" preset is picked; line spacing does nothing until the
+ * watermark has a second line. Leaving them visible invites the user to drag
+ * a slider and see no change.
  *
  * @param {HTMLElement} root
  * @param {object} state
@@ -40,8 +41,11 @@ function syncConditionalFields(root, state) {
   const quality = root.querySelector('#qualityField');
   if (quality) quality.hidden = state.export.format === 'image/png';
 
+  const customText = root.querySelector('#wmCustomTextField');
+  if (customText) customText.hidden = state.watermark.preset !== 'custom';
+
   const lineHeight = root.querySelector('#lineHeightField');
-  if (lineHeight) lineHeight.hidden = splitLines(state.watermark.text).length < 2;
+  if (lineHeight) lineHeight.hidden = splitLines(composeWatermarkText(state.watermark)).length < 2;
 }
 
 /** Format a value for its readout. */
@@ -116,7 +120,7 @@ export function bindControls({ root, store, onChange }) {
       if (el.type === 'checkbox' && path.endsWith('.on')) {
         el.closest('.panel')?.classList.toggle('is-muted', !el.checked);
       }
-      if (path === 'export.format' || path === 'watermark.text') {
+      if (path === 'export.format' || path.startsWith('watermark.')) {
         syncConditionalFields(root, store.get());
       }
 
