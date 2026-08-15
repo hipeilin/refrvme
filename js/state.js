@@ -31,13 +31,13 @@ export function defaultOptions() {
       text: '© your name',
       color: '#FFFFFF',
       alpha: 0.55,
-      position: 'br', // tl | tr | bl | br | center
+      position: 'br', // tl | tc | tr | bl | bc | br | center
       /** Inset from the image edge, as a fraction of metric. */
       marginPct: 0.03,
     },
 
     frame: {
-      on: true,
+      on: false,
       /** Frame width, as a fraction of metric. */
       borderPct: 0.035,
       /**
@@ -50,22 +50,11 @@ export function defaultOptions() {
       transparent: false,
     },
 
-    caption: {
-      on: true,
-      left: '',
-      center: '',
-      right: '',
-      color: '#111111',
-      /** Extra inset for the left slot, as a fraction of metric. */
-      padLeftPct: 0.01,
-      /** Extra inset for the right slot, as a fraction of metric. */
-      padRightPct: 0.01,
-    },
-
     palette: {
-      on: true,
+      on: false,
       count: 5,
       showHex: true,
+      hexColor: '#111111',
       /** Swatch diameter, as a fraction of metric. */
       swatchPct: 0.075,
     },

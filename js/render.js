@@ -7,7 +7,6 @@
  *   2. watermark — burned into the cropped image, so it scales with it
  *   3. frame     — fill, then clip the image to rounded corners
  *   4. palette   — swatch circles + hex labels
- *   5. caption   — the three text slots
  *
  * The watermark goes on before the frame so that turning the frame on cannot
  * change the watermark's size. Every measurement derives from `metric`, the
@@ -19,8 +18,8 @@
  */
 
 import { rgbToHex, hexToRgb, luminance } from './lib/color.js';
-import { fontStr, resolveTextSize, metricOf } from './lib/text.js';
-import { computeLayout, swatchMetrics, captionsCollide } from './lib/layout.js';
+import { fontStr, watermarkFontStr, resolveTextSize, metricOf } from './lib/text.js';
+import { computeLayout, swatchMetrics } from './lib/layout.js';
 
 /** Scratch context used only for text measurement during layout. */
 let scratchCtx = null;
@@ -116,10 +115,12 @@ export function cropToCanvas(image, crop, outputWidth) {
 function watermarkAnchor(pos, w, h, margin) {
   switch (pos) {
     case 'tl': return { x: margin, y: margin, align: 'left', anchor: 'top' };
+    case 'tc': return { x: w / 2, y: margin, align: 'center', anchor: 'top' };
     case 'tr': return { x: w - margin, y: margin, align: 'right', anchor: 'top' };
-    case 'br': return { x: w - margin, y: h - margin, align: 'right', anchor: 'bottom' };
     case 'center': return { x: w / 2, y: h / 2, align: 'center', anchor: 'middle' };
-    case 'bl':
+    case 'bl': return { x: margin, y: h - margin, align: 'left', anchor: 'bottom' };
+    case 'bc': return { x: w / 2, y: h - margin, align: 'center', anchor: 'bottom' };
+    case 'br': return { x: w - margin, y: h - margin, align: 'right', anchor: 'bottom' };
     default: return { x: margin, y: h - margin, align: 'left', anchor: 'bottom' };
   }
 }
@@ -146,10 +147,7 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
   const metric = metricOf(cropW, cropH);
 
   // ---- 2. Resolve the one text size used by everything ---------------------
-  const captionSlots = opts.caption.on
-    ? [opts.caption.left, opts.caption.center, opts.caption.right]
-    : [];
-  const hasCaptionText = captionSlots.some((t) => t && t.trim());
+  const wmText = opts.watermark.on ? opts.watermark.text : '';
 
   const swatches = opts.palette.on ? palette.slice(0, opts.palette.count) : [];
   const hexStrings = opts.palette.showHex ? swatches.map(rgbToHex) : [];
@@ -162,11 +160,16 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
     mctx.font = fontStr(px, opts.font);
     return mctx.measureText(text).width;
   };
+  const measureWatermark = (text, px) => {
+    mctx.font = watermarkFontStr(px);
+    return mctx.measureText(text).width;
+  };
 
   const sized = resolveTextSize(measure, {
     cropW,
     metric,
-    strings: [opts.watermark.on ? opts.watermark.text : '', ...captionSlots],
+    watermark: wmText,
+    measureWatermark,
     hexStrings,
     cell,
     marginPx: margin,
@@ -180,7 +183,7 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
   // ---- 3. Watermark, burned into the cropped image -------------------------
   if (opts.watermark.on && opts.watermark.text.trim()) {
     const ictx = imgCanvas.getContext('2d');
-    ictx.font = fontStr(textPx, opts.font);
+    ictx.font = watermarkFontStr(textPx);
     ictx.fillStyle = opts.watermark.color;
     ictx.globalAlpha = opts.watermark.alpha;
 
@@ -196,10 +199,6 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
     frameOn: opts.frame.on,
     borderPct: opts.frame.borderPct,
     radiusPct: opts.frame.radiusPct,
-    captionOn: opts.caption.on,
-    hasCaptionText,
-    padLeftPct: opts.caption.padLeftPct,
-    padRightPct: opts.caption.padRightPct,
     paletteOn: opts.palette.on && swatches.length > 0,
     swatchCount: Math.max(1, swatches.length || opts.palette.count),
     swatchPct: opts.palette.swatchPct,
@@ -239,7 +238,7 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
 
     ctx.textAlign = 'center';
     ctx.font = fontStr(hexPx, opts.font);
-    ctx.fillStyle = opts.caption.color;
+    ctx.fillStyle = opts.palette.hexColor;
 
     swatches.forEach((rgb, i) => {
       const cx = L.border + L.cell * (i + 0.5);
@@ -257,33 +256,10 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
       ctx.stroke();
 
       if (opts.palette.showHex) {
-        ctx.fillStyle = opts.caption.color;
+        ctx.fillStyle = opts.palette.hexColor;
         drawText(ctx, rgbToHex(rgb), cx, L.hexCY, 'middle');
       }
     });
-  }
-
-  // ---- 7. Caption row -----------------------------------------------------
-  if (L.showCaption) {
-    ctx.font = fontStr(textPx, opts.font); // identical string to the watermark
-    ctx.fillStyle = opts.caption.color;
-
-    const slots = [
-      { text: opts.caption.left, align: 'left', x: L.captionLeftX },
-      { text: opts.caption.center, align: 'center', x: L.captionCenterX },
-      { text: opts.caption.right, align: 'right', x: L.captionRightX },
-    ];
-
-    for (const slot of slots) {
-      if (!slot.text || !slot.text.trim()) continue;
-      ctx.textAlign = slot.align;
-      drawText(ctx, slot.text, slot.x, L.captionCY, 'middle');
-    }
-
-    const widths = slots.map((s) => (s.text && s.text.trim() ? measure(s.text, textPx) : 0));
-    if (captionsCollide(L, widths)) {
-      warnings.push('Caption slots are overlapping. Shorten the text or reduce the side spacing.');
-    }
   }
 
   if (opts.frame.transparent && opts.export.format === 'image/jpeg') {

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Passepartout — crop, frame and caption your photographs</title>
-<meta name="description" content="Crop to platform ratios, add a watermark, mount the image in a frame, caption it and print its colour palette. Everything runs in your browser; no image is ever uploaded.">
+<title>Passepartout — crop, frame and watermark your photographs</title>
+<meta name="description" content="Crop to platform ratios, add a watermark, mount the image in a frame and print its colour palette. Everything runs in your browser; no image is ever uploaded.">
 
 <!-- System font stacks only. A webfont CDN would mean a third-party request
      on every load, which would make the "nothing leaves your device" claim
@@ -17,7 +17,7 @@
 <header class="masthead">
   <div class="masthead__mark">
     <span class="masthead__name">Passepartout</span>
-    <span class="masthead__sub">crop · frame · caption · palette</span>
+    <span class="masthead__sub">crop · watermark · frame · palette</span>
   </div>
 
   <div class="masthead__actions">
@@ -145,10 +145,12 @@
         <span class="field__label">Position</span>
         <div class="grid-pick" id="wmPosition" role="radiogroup" aria-label="Watermark position">
           <button type="button" data-position="tl" role="radio" aria-checked="false" aria-label="Top left"></button>
+          <button type="button" data-position="tc" role="radio" aria-checked="false" aria-label="Top centre"></button>
           <button type="button" data-position="tr" role="radio" aria-checked="false" aria-label="Top right"></button>
-          <button type="button" data-position="center" role="radio" aria-checked="false" aria-label="Centre"></button>
           <button type="button" data-position="bl" role="radio" aria-checked="false" aria-label="Bottom left"></button>
+          <button type="button" data-position="bc" role="radio" aria-checked="false" aria-label="Bottom centre"></button>
           <button type="button" data-position="br" role="radio" aria-checked="true" aria-label="Bottom right"></button>
+          <button type="button" data-position="center" role="radio" aria-checked="false" aria-label="Centre"></button>
         </div>
       </div>
 
@@ -174,12 +176,11 @@
       <h2 class="panel__title">
         Frame
         <label class="switch">
-          <input type="checkbox" data-bind="frame.on" checked>
+          <input type="checkbox" data-bind="frame.on">
           <span class="switch__track" aria-hidden="true"></span>
           <span class="visually-hidden">Show frame</span>
         </label>
       </h2>
-      <p class="panel__note">The background colour also fills the caption area below.</p>
 
       <label class="range-field">
         <span class="field__label">Border width <output data-for="frame.borderPct"></output></span>
@@ -203,53 +204,12 @@
       </div>
     </section>
 
-    <!-- ── Caption ─────────────────────────────────────────────────── -->
-    <section class="panel">
-      <h2 class="panel__title">
-        Caption
-        <label class="switch">
-          <input type="checkbox" data-bind="caption.on" checked>
-          <span class="switch__track" aria-hidden="true"></span>
-          <span class="visually-hidden">Show caption</span>
-        </label>
-      </h2>
-      <p class="panel__note">Three slots along the bottom of the frame.</p>
-
-      <div class="field">
-        <label class="field__label" for="capLeft">Left</label>
-        <input class="input" id="capLeft" type="text" data-bind="caption.left" maxlength="120" placeholder="Leica M6 · 35mm">
-      </div>
-      <label class="range-field range-field--tight">
-        <span class="field__label">Left spacing <output data-for="caption.padLeftPct"></output></span>
-        <input type="range" data-bind="caption.padLeftPct" min="0" max="0.15" step="0.0025" data-format="percent">
-      </label>
-
-      <div class="field">
-        <label class="field__label" for="capCenter">Middle</label>
-        <input class="input" id="capCenter" type="text" data-bind="caption.center" maxlength="120" placeholder="Lisbon, 2026">
-      </div>
-
-      <div class="field">
-        <label class="field__label" for="capRight">Right</label>
-        <input class="input" id="capRight" type="text" data-bind="caption.right" maxlength="120" placeholder="Portra 400">
-      </div>
-      <label class="range-field range-field--tight">
-        <span class="field__label">Right spacing <output data-for="caption.padRightPct"></output></span>
-        <input type="range" data-bind="caption.padRightPct" min="0" max="0.15" step="0.0025" data-format="percent">
-      </label>
-
-      <label class="swatch-field">
-        <span class="field__label">Text colour</span>
-        <input type="color" data-bind="caption.color" value="#111111">
-      </label>
-    </section>
-
     <!-- ── Palette ─────────────────────────────────────────────────── -->
     <section class="panel">
       <h2 class="panel__title">
         Colour palette
         <label class="switch">
-          <input type="checkbox" data-bind="palette.on" checked>
+          <input type="checkbox" data-bind="palette.on">
           <span class="switch__track" aria-hidden="true"></span>
           <span class="visually-hidden">Show colour palette</span>
         </label>
@@ -271,13 +231,18 @@
         <span>Print hex codes</span>
       </label>
 
+      <label class="swatch-field">
+        <span class="field__label">Hex label colour</span>
+        <input type="color" data-bind="palette.hexColor" value="#111111">
+      </label>
+
       <div class="swatch-readout" id="swatchReadout" aria-live="polite"></div>
     </section>
 
     <!-- ── Typeface ────────────────────────────────────────────────── -->
     <section class="panel">
       <h2 class="panel__title">Typeface</h2>
-      <p class="panel__note">The watermark and caption always share one size and weight.</p>
+      <p class="panel__note">Hex labels use the typeface below.</p>
       <div class="segmented" id="fontPick" role="radiogroup" aria-label="Typeface">
         <button type="button" class="seg" data-font="sans" role="radio" aria-checked="true">Sans</button>
         <button type="button" class="seg" data-font="serif" role="radio" aria-checked="false">Serif</button>

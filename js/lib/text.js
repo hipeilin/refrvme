@@ -1,10 +1,10 @@
 /**
  * text.js — the single source of truth for canvas text.
  *
- * THE RULE: the watermark and the caption must render at exactly the same
- * font, weight and pixel size. That only holds if there is one place that
- * decides those values. Nothing else in the codebase may call `ctx.font =`
- * with a size it computed itself — it asks for `fontStr(px)` instead.
+ * THE RULE: the watermark and the hex labels share one resolved pixel size.
+ * That only holds if there is one place that decides that size. Nothing else
+ * in the codebase may call `ctx.font =` with a size it computed itself —
+ * it asks for `fontStr(px)` or `watermarkFontStr(px)` instead.
  *
  * Sizes are expressed as fractions of `metric` (the geometric mean of the
  * cropped image's dimensions) rather than raw pixels, so a phone snapshot and
@@ -18,14 +18,15 @@ export const FONT_STACKS = {
   mono: 'ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace',
 };
 
+/** Display face burned into the cropped image as the watermark. */
+export const WATERMARK_FONT = '"Bigola Display"';
+
 /** Base text specification. */
 export const TEXT = {
   weight: 500,
   /**
    * Text height as a fraction of `metric`.
-   * Tuned so that three populated caption slots clear each other on a square
-   * crop — the tightest realistic case. Larger values look fine with one slot
-   * and collide with three.
+   * Tuned so a typical watermark clears the crop edges on a square image.
    */
   sizePct: 0.032,
   /** Never render text smaller than this, however extreme the clamp. */
@@ -33,7 +34,7 @@ export const TEXT = {
 };
 
 /**
- * Hex labels are deliberately subordinate to the caption — they are metadata,
+ * Hex labels are deliberately subordinate to the watermark — they are metadata,
  * not content. Expressed as an explicit ratio so the relationship survives
  * future edits rather than drifting into an ad-hoc magic number.
  */
@@ -58,6 +59,15 @@ export function fontStr(px, stackKey = 'sans') {
 }
 
 /**
+ * Canvas font string for the watermark.
+ * @param {number} px
+ * @returns {string}
+ */
+export function watermarkFontStr(px) {
+  return `normal ${px}px ${WATERMARK_FONT}`;
+}
+
+/**
  * Geometric mean of the crop's dimensions.
  *
  * Width alone is a poor scale reference: a 2000x1000 landscape and a
@@ -75,10 +85,9 @@ export function metricOf(w, h) {
 /**
  * Decide the one text size used by every string in the composition.
  *
- * Runs a single clamp pass across the watermark, all three caption slots and
- * the hex labels. If any one string would overflow, *everything* shrinks by
- * the same factor — which is what keeps them measurably equal instead of
- * merely similar.
+ * Runs a single clamp pass across the watermark and the hex labels. If any
+ * one string would overflow, everything shrinks by the same factor — which
+ * is what keeps them measurably equal instead of merely similar.
  *
  * @param {(text: string, px: number) => number} measure
  *        width of `text` when set at `px`. Backed by ctx.measureText in the
@@ -86,14 +95,25 @@ export function metricOf(w, h) {
  * @param {object} opts
  * @param {number} opts.cropW cropped image width in px
  * @param {number} opts.metric geometric mean of the crop
- * @param {string[]} opts.strings watermark + caption strings (falsy entries ignored)
+ * @param {string[]} opts.strings caption strings (falsy entries ignored)
+ * @param {string} [opts.watermark] watermark string, measured with its own face
+ * @param {(text: string, px: number) => number} [opts.measureWatermark]
  * @param {string[]} opts.hexStrings hex labels, measured at HEX_SCALE
  * @param {number} opts.cell width of one palette column, for hex label budget
  * @param {number} opts.marginPx horizontal inset the wide strings must respect
  * @returns {{px: number, hexPx: number}}
  */
 export function resolveTextSize(measure, opts) {
-  const { cropW, metric, strings = [], hexStrings = [], cell = Infinity, marginPx = 0 } = opts;
+  const {
+    cropW,
+    metric,
+    strings = [],
+    watermark = '',
+    measureWatermark = measure,
+    hexStrings = [],
+    cell = Infinity,
+    marginPx = 0,
+  } = opts;
 
   const base = metric * TEXT.sizePct;
 
@@ -101,7 +121,9 @@ export function resolveTextSize(measure, opts) {
   // One clamp across all of them, so if any single string is too long they
   // all shrink together and stay measurably equal.
   const live = strings.filter(Boolean);
-  const widest = live.length ? Math.max(...live.map((t) => measure(t, base))) : 0;
+  const captionWidths = live.map((t) => measure(t, base));
+  const wmWidth = watermark.trim() ? measureWatermark(watermark, base) : 0;
+  const widest = Math.max(wmWidth, ...captionWidths, 0);
   const budget = Math.max(1, cropW - 2 * marginPx);
   const ideal = widest > budget ? base * (budget / widest) : base;
   const px = Math.max(TEXT.minPx, ideal);
@@ -144,9 +166,12 @@ export function resolveTextSize(measure, opts) {
  */
 export async function ensureFontsReady() {
   if (typeof document === 'undefined' || !document.fonts) return;
-  const probes = Object.keys(FONT_STACKS).map((key) =>
-    document.fonts.load(fontStr(100, key)).catch(() => {}),
-  );
+  const probes = [
+    ...Object.keys(FONT_STACKS).map((key) =>
+      document.fonts.load(fontStr(100, key)).catch(() => {}),
+    ),
+    document.fonts.load(watermarkFontStr(100)).catch(() => {}),
+  ];
   await Promise.all(probes);
   await document.fonts.ready;
 }

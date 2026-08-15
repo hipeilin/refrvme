@@ -15,11 +15,10 @@
  *   │  └────────────────────────┘  │
  *   │   ●     ●     ●     ●     ●  │  ← palette swatches
  *   │ #1A1C1F #3D4147 ...          │  ← hex labels
- *   │ left            centre  right│  ← caption row
  *   └──────────────────────────────┘
  *
  * Note that `metric` derives from the CROPPED IMAGE only, never the finished
- * canvas. Adding a frame or a caption bar must not change the size of the
+ * canvas. Adding a frame or a palette bar must not change the size of the
  * watermark — that is the whole point of the shared text spec.
  */
 
@@ -30,10 +29,6 @@ import { metricOf } from './text.js';
  * @property {boolean} frameOn
  * @property {number} borderPct     frame width, as a fraction of metric
  * @property {number} radiusPct     image corner radius, as a fraction of metric
- * @property {boolean} captionOn
- * @property {boolean} hasCaptionText  true if any of the three slots has text
- * @property {number} padLeftPct    left caption inset, fraction of metric
- * @property {number} padRightPct   right caption inset, fraction of metric
  * @property {boolean} paletteOn
  * @property {number} swatchCount
  * @property {number} swatchPct     swatch diameter, as a fraction of metric
@@ -86,17 +81,13 @@ export function computeLayout({ cropW, cropH, opts, textPx, hexPx }) {
   const { cell, dia } = swatchMetrics(cropW, metric, opts.swatchCount, opts.swatchPct);
 
   // --- Bar contents --------------------------------------------------------
-  // The bar is independent of the frame: a caption or a palette strip can sit
-  // under a borderless image just as well as under a mounted one.
+  // The palette strip can sit under a borderless image just as well as under
+  // a mounted one.
   const showPalette = opts.paletteOn;
-  const showCaption = opts.captionOn && opts.hasCaptionText;
 
   const labelGap = textPx * 0.45;
   const paletteH = showPalette ? dia + labelGap + hexPx : 0;
-  const captionH = showCaption ? textPx * 1.2 : 0;
-  const rowGap = showPalette && showCaption ? textPx * 0.9 : 0;
-
-  const contentH = paletteH + rowGap + captionH;
+  const contentH = paletteH;
   const barExtra = contentH > 0 ? contentH + metric * BAR_PAD_PCT : 0;
 
   // --- Canvas size ---------------------------------------------------------
@@ -113,7 +104,6 @@ export function computeLayout({ cropW, cropH, opts, textPx, hexPx }) {
   const topPad = contentH > 0 ? (barH - contentH) / 2 : 0;
 
   const paletteTop = barTop + topPad;
-  const captionTop = paletteTop + paletteH + rowGap;
 
   return {
     metric,
@@ -132,7 +122,6 @@ export function computeLayout({ cropW, cropH, opts, textPx, hexPx }) {
     imgH: cropH,
 
     showPalette,
-    showCaption,
     /** Whether anything needs a background fill behind it. */
     hasBackground: opts.frameOn || contentH > 0,
     cell,
@@ -141,33 +130,5 @@ export function computeLayout({ cropW, cropH, opts, textPx, hexPx }) {
     swatchCY: paletteTop + dia / 2,
     /** Vertical centre of the hex label row. */
     hexCY: paletteTop + dia + labelGap + hexPx / 2,
-
-    /** Vertical centre of the caption row. */
-    captionCY: captionTop + captionH / 2,
-    captionLeftX: border + metric * opts.padLeftPct,
-    captionCenterX: width / 2,
-    captionRightX: width - border - metric * opts.padRightPct,
   };
-}
-
-/**
- * Do the three caption slots overlap?
- *
- * Three independently-edited fields will eventually collide. The caller can
- * use this to warn rather than silently render mush.
- *
- * @param {object} layout
- * @param {number[]} widths measured pixel widths of [left, centre, right]
- * @returns {boolean}
- */
-export function captionsCollide(layout, widths) {
-  const [wl, wc, wr] = widths;
-  const mid = layout.captionCenterX;
-  const leftEdge = layout.captionLeftX + wl;
-  const rightEdge = layout.captionRightX - wr;
-
-  if (wc > 0) {
-    return leftEdge > mid - wc / 2 || rightEdge < mid + wc / 2;
-  }
-  return wl > 0 && wr > 0 && leftEdge > rightEdge;
 }
