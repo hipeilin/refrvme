@@ -19,7 +19,7 @@
  *
  * Note that `metric` derives from the CROPPED IMAGE only, never the finished
  * canvas. Adding a frame or a palette bar must not change the size of the
- * watermark — that is the whole point of the shared text spec.
+ * watermark.
  */
 
 import { metricOf } from './text.js';
@@ -64,11 +64,10 @@ export function swatchMetrics(cropW, metric, count, swatchPct) {
  * @param {number} args.cropW
  * @param {number} args.cropH
  * @param {LayoutOptions} args.opts
- * @param {number} args.textPx  resolved shared text size
  * @param {number} args.hexPx   resolved hex label size
  * @returns {object} geometry
  */
-export function computeLayout({ cropW, cropH, opts, textPx, hexPx }) {
+export function computeLayout({ cropW, cropH, opts, hexPx }) {
   const metric = metricOf(cropW, cropH);
 
   const border = opts.frameOn ? metric * opts.borderPct : 0;
@@ -81,12 +80,14 @@ export function computeLayout({ cropW, cropH, opts, textPx, hexPx }) {
   const { cell, dia } = swatchMetrics(cropW, metric, opts.swatchCount, opts.swatchPct);
 
   // --- Bar contents --------------------------------------------------------
-  // The palette strip can sit under a borderless image just as well as under
-  // a mounted one.
+  // The bar is independent of the frame: a palette strip can sit under a
+  // borderless image just as well as under a mounted one.
   const showPalette = opts.paletteOn;
+  const showHex = showPalette && opts.showHex;
 
-  const labelGap = textPx * 0.45;
-  const paletteH = showPalette ? dia + labelGap + hexPx : 0;
+  const labelGap = hexPx * 0.6;
+  const paletteH = showPalette ? dia + (showHex ? labelGap + hexPx : 0) : 0;
+
   const contentH = paletteH;
   const barExtra = contentH > 0 ? contentH + metric * BAR_PAD_PCT : 0;
 
@@ -122,6 +123,7 @@ export function computeLayout({ cropW, cropH, opts, textPx, hexPx }) {
     imgH: cropH,
 
     showPalette,
+    showHex,
     /** Whether anything needs a background fill behind it. */
     hasBackground: opts.frameOn || contentH > 0,
     cell,

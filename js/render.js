@@ -18,7 +18,10 @@
  */
 
 import { rgbToHex, hexToRgb, luminance } from './lib/color.js';
-import { fontStr, watermarkFontStr, resolveTextSize, metricOf } from './lib/text.js';
+import {
+  fontStr, resolveWatermarkSize, resolveHexSize, metricOf, splitLines,
+  DEFAULT_LINE_HEIGHT,
+} from './lib/text.js';
 import { computeLayout, swatchMetrics } from './lib/layout.js';
 
 /** Scratch context used only for text measurement during layout. */
@@ -57,6 +60,51 @@ function drawText(ctx, text, x, y, anchor) {
 
   ctx.textBaseline = 'alphabetic';
   ctx.fillText(text, x, baseline);
+}
+
+/**
+ * Draw a block of one or more lines, anchored as a whole.
+ *
+ * `fillText` has no concept of a newline, so each line is positioned by hand.
+ * The block is anchored by its outer ink edges — the top of the first line's
+ * glyphs, or the bottom of the last line's — rather than by baselines, so a
+ * two-line watermark sits exactly where a one-line one did instead of
+ * creeping toward the edge as lines are added.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string[]} lines
+ * @param {number} x
+ * @param {number} y
+ * @param {'top'|'middle'|'bottom'} anchor
+ * @param {number} lineStep vertical distance between baselines, in px
+ */
+function drawTextBlock(ctx, lines, x, y, anchor, lineStep) {
+  if (!lines.length) return;
+  if (lines.length === 1) {
+    drawText(ctx, lines[0], x, y, anchor);
+    return;
+  }
+
+  ctx.textBaseline = 'alphabetic';
+
+  // Ink extents of the outer lines. Interior lines are spaced by lineStep and
+  // never affect where the block as a whole sits.
+  const firstAscent = ctx.measureText(lines[0] || 'X').actualBoundingBoxAscent || 0;
+  const lastMetrics = ctx.measureText(lines[lines.length - 1] || 'X');
+  const lastDescent = lastMetrics.actualBoundingBoxDescent || 0;
+
+  const span = (lines.length - 1) * lineStep;
+  const blockHeight = firstAscent + span + lastDescent;
+
+  let firstBaseline;
+  if (anchor === 'top') firstBaseline = y + firstAscent;
+  else if (anchor === 'bottom') firstBaseline = y - lastDescent - span;
+  else firstBaseline = y - blockHeight / 2 + firstAscent;
+
+  lines.forEach((line, i) => {
+    if (!line) return; // interior blank line: consumes space, draws nothing
+    ctx.fillText(line, x, firstBaseline + i * lineStep);
+  });
 }
 
 /**
@@ -106,23 +154,32 @@ export function cropToCanvas(image, crop, outputWidth) {
 }
 
 /**
- * Watermark anchor positions, as fractions of the cropped image plus a margin.
+ * Resolve a watermark position id into a draw anchor.
+ *
+ * Positions are a 3x3 grid encoded as `<row><col>`, rows `t|m|b` and columns
+ * `l|c|r` — so `tc` is top-centre, `br` bottom-right, `mc` dead centre.
+ * Deriving x/y/alignment from the two characters means all nine cases share
+ * one code path instead of a nine-arm switch.
+ *
  * @param {string} pos
- * @param {number} w
- * @param {number} h
- * @param {number} margin
+ * @param {number} w cropped image width
+ * @param {number} h cropped image height
+ * @param {number} margin inset from the edge
+ * @returns {{x: number, y: number, align: string, anchor: string}}
  */
 function watermarkAnchor(pos, w, h, margin) {
-  switch (pos) {
-    case 'tl': return { x: margin, y: margin, align: 'left', anchor: 'top' };
-    case 'tc': return { x: w / 2, y: margin, align: 'center', anchor: 'top' };
-    case 'tr': return { x: w - margin, y: margin, align: 'right', anchor: 'top' };
-    case 'center': return { x: w / 2, y: h / 2, align: 'center', anchor: 'middle' };
-    case 'bl': return { x: margin, y: h - margin, align: 'left', anchor: 'bottom' };
-    case 'bc': return { x: w / 2, y: h - margin, align: 'center', anchor: 'bottom' };
-    case 'br': return { x: w - margin, y: h - margin, align: 'right', anchor: 'bottom' };
-    default: return { x: margin, y: h - margin, align: 'left', anchor: 'bottom' };
-  }
+  // 'center' was the id used before the grid grew to nine cells; map it so
+  // settings saved by an older build still resolve.
+  const id = pos === 'center' ? 'mc' : (pos || 'br');
+  const row = id[0];
+  const col = id[1];
+
+  const x = col === 'l' ? margin : col === 'r' ? w - margin : w / 2;
+  const y = row === 't' ? margin : row === 'b' ? h - margin : h / 2;
+  const align = col === 'l' ? 'left' : col === 'r' ? 'right' : 'center';
+  const anchor = row === 't' ? 'top' : row === 'b' ? 'bottom' : 'middle';
+
+  return { x, y, align, anchor };
 }
 
 /**
@@ -135,7 +192,7 @@ function watermarkAnchor(pos, w, h, margin) {
  * @param {number} args.outputWidth width of the cropped image in the output
  * @param {number[][]} args.palette pre-extracted colours; pass the same array
  *        to preview and export so the two never disagree
- * @returns {{canvas: HTMLCanvasElement, warnings: string[], textPx: number}}
+ * @returns {{canvas: HTMLCanvasElement, warnings: string[], watermarkPx: number}}
  */
 export function renderComposition({ image, crop, opts, outputWidth, palette = [] }) {
   const warnings = [];
@@ -146,9 +203,7 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
   const cropH = imgCanvas.height;
   const metric = metricOf(cropW, cropH);
 
-  // ---- 2. Resolve the one text size used by everything ---------------------
-  const wmText = opts.watermark.on ? opts.watermark.text : '';
-
+  // ---- 2. Resolve text sizes ----------------------------------------------
   const swatches = opts.palette.on ? palette.slice(0, opts.palette.count) : [];
   const hexStrings = opts.palette.showHex ? swatches.map(rgbToHex) : [];
 
@@ -156,40 +211,51 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
   const margin = metric * opts.watermark.marginPct;
 
   const mctx = measurer();
-  const measure = (text, px) => {
-    mctx.font = fontStr(px, opts.font);
-    return mctx.measureText(text).width;
-  };
-  const measureWatermark = (text, px) => {
-    mctx.font = watermarkFontStr(px);
+  const measure = (text, px, fontKey) => {
+    mctx.font = fontStr(px, fontKey);
     return mctx.measureText(text).width;
   };
 
-  const sized = resolveTextSize(measure, {
+  // The watermark and the hex labels are sized independently — see text.js.
+  const wm = resolveWatermarkSize(measure, {
     cropW,
     metric,
-    watermark: wmText,
-    measureWatermark,
-    hexStrings,
-    cell,
+    text: opts.watermark.on ? opts.watermark.text : '',
+    font: opts.watermark.font,
+    scale: opts.watermark.scale,
     marginPx: margin,
   });
-  const textPx = sized.px;
-  const hexPx = sized.hexPx;
-  if (sized.overflow) {
-    warnings.push('Text hit its minimum size and may run past the edge. Shorten it or crop wider.');
+  const hex = resolveHexSize(measure, {
+    metric,
+    labels: hexStrings,
+    font: opts.palette.font,
+    cell,
+  });
+
+  const watermarkPx = wm.px;
+  const hexPx = hex.px;
+  if (wm.overflow) {
+    warnings.push('The watermark hit its minimum size and may run past the edge. Shorten it or crop wider.');
   }
 
   // ---- 3. Watermark, burned into the cropped image -------------------------
-  if (opts.watermark.on && opts.watermark.text.trim()) {
+  if (opts.watermark.on && splitLines(opts.watermark.text).length) {
     const ictx = imgCanvas.getContext('2d');
-    ictx.font = watermarkFontStr(textPx);
+    // `scale` is 1 by default: the watermark is drawn at its base fraction of
+    // metric with no adjustment. It exists because two faces at the same pixel
+    // size do not LOOK the same size — cap-heights differ — so swapping to a
+    // display face usually needs a nudge to sit right against the image.
+    const wmPx = watermarkPx * (opts.watermark.scale ?? 1);
+    ictx.font = fontStr(wmPx, opts.watermark.font);
     ictx.fillStyle = opts.watermark.color;
     ictx.globalAlpha = opts.watermark.alpha;
 
     const a = watermarkAnchor(opts.watermark.position, cropW, cropH, margin);
     ictx.textAlign = a.align;
-    drawText(ictx, opts.watermark.text, a.x, a.y, a.anchor);
+
+    const lines = splitLines(opts.watermark.text);
+    const lineStep = wmPx * (opts.watermark.lineHeight ?? DEFAULT_LINE_HEIGHT);
+    drawTextBlock(ictx, lines, a.x, a.y, a.anchor, lineStep);
 
     ictx.globalAlpha = 1;
   }
@@ -200,10 +266,11 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
     borderPct: opts.frame.borderPct,
     radiusPct: opts.frame.radiusPct,
     paletteOn: opts.palette.on && swatches.length > 0,
+    showHex: opts.palette.showHex,
     swatchCount: Math.max(1, swatches.length || opts.palette.count),
     swatchPct: opts.palette.swatchPct,
   };
-  const L = computeLayout({ cropW, cropH, opts: layoutOpts, textPx, hexPx });
+  const L = computeLayout({ cropW, cropH, opts: layoutOpts, hexPx });
 
   // ---- 5. Compose ---------------------------------------------------------
   const out = document.createElement('canvas');
@@ -237,8 +304,7 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
       : 'rgba(0,0,0,0.18)';
 
     ctx.textAlign = 'center';
-    ctx.font = fontStr(hexPx, opts.font);
-    ctx.fillStyle = opts.palette.hexColor;
+    ctx.font = fontStr(hexPx, opts.palette.font);
 
     swatches.forEach((rgb, i) => {
       const cx = L.border + L.cell * (i + 0.5);
@@ -255,7 +321,7 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
       ctx.strokeStyle = ringColor;
       ctx.stroke();
 
-      if (opts.palette.showHex) {
+      if (L.showHex) {
         ctx.fillStyle = opts.palette.hexColor;
         drawText(ctx, rgbToHex(rgb), cx, L.hexCY, 'middle');
       }
@@ -266,7 +332,7 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
     warnings.push('JPEG cannot store transparency — the frame will export as black. Use PNG.');
   }
 
-  return { canvas: out, warnings, textPx };
+  return { canvas: out, warnings, watermarkPx };
 }
 
 /**

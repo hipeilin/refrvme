@@ -15,16 +15,12 @@ import {
   clampToBounds,
   resizeFromHandle,
   resolveRatio,
-  frameRatioOf,
-  frameBox,
-  zoomBounds,
-  zoomTo,
-  zoomBy,
-  zoomFactorOf,
-  MAX_ZOOM,
 } from '../js/lib/crop-geometry.js';
-import { resolveTextSize, metricOf, HEX_SCALE, HEX_COLUMN_FILL, TEXT } from '../js/lib/text.js';
-import { computeLayout, swatchMetrics, captionsCollide } from '../js/lib/layout.js';
+import {
+  resolveWatermarkSize, resolveHexSize, metricOf, splitLines, measureBlock,
+  HEX_COLUMN_FILL, TEXT,
+} from '../js/lib/text.js';
+import { computeLayout, swatchMetrics } from '../js/lib/layout.js';
 
 let passed = 0;
 let failed = 0;
@@ -46,8 +42,19 @@ function group(title) {
   console.log(`\n${title}`);
 }
 
-/** A crude monospace-ish measurer: every glyph is 0.55em wide. */
-const fakeMeasure = (text, px) => text.length * px * 0.55;
+/**
+ * A crude measurer. Per-font width factors let the tests verify that each
+ * string is measured with its OWN face — a display face is wider per glyph,
+ * which is exactly the case that would break a single-font clamp.
+ */
+const WIDTH_FACTOR = { sans: 0.55, serif: 0.52, mono: 0.60, display: 0.78 };
+const fakeMeasure = (text, px, font = 'sans') =>
+  text.length * px * (WIDTH_FACTOR[font] ?? 0.55);
+
+/** Shorthand for the common resolveWatermarkSize call shape. */
+const wmSize = (o) => resolveWatermarkSize(fakeMeasure, {
+  cropW: 1000, metric: metricOf(1000, 1000), font: 'sans', scale: 1, marginPx: 0, ...o,
+});
 
 // ---------------------------------------------------------------- colour ---
 group('color');
@@ -141,76 +148,8 @@ group('crop geometry');
   ok('free stays null', resolveRatio('free', 'portrait') === null);
 }
 
-// ------------------------------------------------- fixed-frame pan & zoom ---
-group('crop geometry — pan & zoom');
-{
-  // The whole point of the mode: zooming out can never expose an edge.
-  const iw = 2000, ih = 1000, ratio = 4 / 5;
-  const start = largestFit(iw, ih, ratio);
-  const out = zoomTo(start, 0.2, iw, ih, ratio); // asked for far past the cap
-  close('zoom-out caps at the covering size', out.w, start.w, 1e-9);
-  ok('capped rect stays inside the image',
-    out.x >= -1e-9 && out.y >= -1e-9 && out.x + out.w <= iw + 1e-9 && out.y + out.h <= ih + 1e-9,
-    JSON.stringify(out));
-  close('cap is set by the shorter side', out.h, ih, 1e-9);
-}
-{
-  const iw = 1200, ih = 1600, ratio = 1;
-  const { minW, maxW } = zoomBounds(iw, ih, ratio);
-  close('cap is the largest fitting square', maxW, 1200, 1e-9);
-  close('zoom-in limit is MAX_ZOOM deep', minW, 1200 / MAX_ZOOM, 1e-9);
-
-  const deep = zoomTo(largestFit(iw, ih, ratio), 99, iw, ih, ratio);
-  close('zoom-in is clamped too', deep.w, minW, 1e-9);
-  close('zoom factor reads back', zoomFactorOf(deep, iw, ih, ratio), MAX_ZOOM, 1e-9);
-}
-{
-  // Zooming holds the anchor point still: the source pixel under the top-left
-  // corner of the frame must not move when the frame is anchored there.
-  const iw = 2000, ih = 2000, ratio = 1;
-  const start = { x: 400, y: 400, w: 800, h: 800 };
-  const anchor = { x: 0, y: 0 };
-  const out = zoomBy(start, 2, iw, ih, ratio, anchor);
-  close('anchored corner holds x', out.x, 400, 1e-9);
-  close('anchored corner holds y', out.y, 400, 1e-9);
-  close('zooming in halves the window', out.w, 400, 1e-9);
-}
-{
-  // Centre anchoring is the slider's behaviour.
-  const iw = 2000, ih = 2000, ratio = 1;
-  const start = { x: 500, y: 500, w: 1000, h: 1000 };
-  const out = zoomBy(start, 2, iw, ih, ratio);
-  close('centre held on x', out.x + out.w / 2, 1000, 1e-9);
-  close('centre held on y', out.y + out.h / 2, 1000, 1e-9);
-}
-{
-  // Anchoring near an edge would push the rect out; the clamp has to win, and
-  // it must not distort the shape while doing so.
-  const iw = 1000, ih = 1000, ratio = 1;
-  const out = zoomTo({ x: 0, y: 0, w: 200, h: 200 }, 1, iw, ih, ratio, { x: 0, y: 0 });
-  ok('clamped back inside after anchoring at the edge',
-    out.x >= -1e-9 && out.x + out.w <= iw + 1e-9, JSON.stringify(out));
-  close('shape survives the clamp', out.w / out.h, 1, 1e-9);
-}
-{
-  ok('locked ratio wins', frameRatioOf({ x: 0, y: 0, w: 300, h: 100 }, 4 / 5) === 4 / 5);
-  close('free frame freezes the crop shape', frameRatioOf({ x: 0, y: 0, w: 300, h: 100 }, null), 3, 1e-9);
-  ok('free frame with no crop is square', frameRatioOf(null, null) === 1);
-}
-{
-  const f = frameBox(1000, 600, 4 / 5, 40);
-  close('frame fits the padded height', f.h, 520, 1e-9);
-  close('frame keeps its ratio', f.w / f.h, 4 / 5, 1e-9);
-  close('frame is centred horizontally', f.x + f.w / 2, 500, 1e-9);
-  close('frame is centred vertically', f.y + f.h / 2, 300, 1e-9);
-
-  const wide = frameBox(400, 1000, 2, 0);
-  close('width-bound frame uses the full width', wide.w, 400, 1e-9);
-  close('and its ratio holds', wide.h, 200, 1e-9);
-}
-
 // ------------------------------------------------------------------- text ---
-group('text sizing');
+group('watermark sizing');
 {
   const cropW = 2000;
   const cropH = 1600;
@@ -219,70 +158,136 @@ group('text sizing');
   // Orientation independence: the whole reason we use a geometric mean.
   close('metric is orientation-agnostic', metricOf(2000, 1000), metricOf(1000, 2000));
 
-  const { px, hexPx } = resolveTextSize(fakeMeasure, {
-    cropW,
-    metric,
-    strings: ['© Jane', 'Left', 'Middle', 'Right'],
-    hexStrings: ['#FFFFFF'],
-    cell: cropW / 5,
-    marginPx: metric * 0.03,
-  });
-  close('unconstrained size is the base fraction', px, metric * TEXT.sizePct, 1e-9);
-  close('hex label tracks the ratio', hexPx, px * HEX_SCALE, 1e-9);
+  const r = wmSize({ cropW, metric, text: '© Jane', marginPx: metric * 0.03 });
+  close('unconstrained size is the base fraction', r.px, metric * TEXT.sizePct, 1e-9);
+  ok('no false overflow when there is room', r.overflow === false);
 }
 {
-  // One very long string must shrink *everything*, not just itself.
+  // A string too wide for the image must shrink to fit.
   const cropW = 800;
   const metric = metricOf(800, 800);
   const margin = metric * 0.03;
-  const long = 'x'.repeat(200);
+  const long = 'x'.repeat(60);
 
-  const withLong = resolveTextSize(fakeMeasure, {
-    cropW, metric, strings: ['short', long], hexStrings: [], cell: 800, marginPx: margin,
-  });
-  const withoutLong = resolveTextSize(fakeMeasure, {
-    cropW, metric, strings: ['short'], hexStrings: [], cell: 800, marginPx: margin,
-  });
-  ok('long string forces a shrink', withLong.px < withoutLong.px);
-  close('hex ratio holds after shrink', withLong.hexPx / withLong.px, HEX_SCALE, 1e-9);
-
-  // Contract: either the text fits its budget, or it hit the legibility floor
-  // and said so. Silently overflowing is the one outcome we forbid.
-  const fits = fakeMeasure(long, withLong.px) <= cropW - 2 * margin + 0.001;
-  ok('fits budget or reports overflow', fits || withLong.overflow === true);
-  ok('overflow flagged at the floor', withLong.px === TEXT.minPx && withLong.overflow);
-
-  const roomy = resolveTextSize(fakeMeasure, {
-    cropW: 4000, metric: metricOf(4000, 4000), strings: ['© Jane Doe'],
-    hexStrings: [], cell: 4000, marginPx: 100,
-  });
-  ok('no false overflow when there is room', roomy.overflow === false);
+  const clamped = wmSize({ cropW, metric, text: long, marginPx: margin });
+  const short = wmSize({ cropW, metric, text: 'short', marginPx: margin });
+  ok('long text forces a shrink', clamped.px < short.px);
+  ok('clamped text fits its budget',
+    fakeMeasure(long, clamped.px, 'sans') <= cropW - 2 * margin + 0.001 || clamped.overflow);
 }
 {
-  // Ten swatches make each column narrow. The hex labels must give way — but
-  // the caption/watermark size must NOT, or adding a swatch would silently
-  // resize the user's caption.
-  const cropW = 900;
-  const metric = metricOf(900, 900);
-  const hexes = Array.from({ length: 10 }, () => '#AABBCC');
-  const many = resolveTextSize(fakeMeasure, {
-    cropW, metric, strings: ['hi'], hexStrings: hexes, cell: cropW / 10, marginPx: 0,
-  });
-  const few = resolveTextSize(fakeMeasure, {
-    cropW, metric, strings: ['hi'], hexStrings: ['#AABBCC'], cell: cropW / 2, marginPx: 0,
-  });
-  close('palette count cannot resize the caption', many.px, few.px, 1e-9);
-  ok('narrow columns shrink only the hex labels', many.hexPx < few.hexPx,
-    `${many.hexPx} vs ${few.hexPx}`);
-  ok('hex label fits its column',
-    fakeMeasure('#AABBCC', many.hexPx) <= (cropW / 10) * HEX_COLUMN_FILL + 0.001);
-  ok('hex never exceeds its ratio of the matched size', many.hexPx <= many.px * HEX_SCALE + 1e-9);
-}
-{
-  const tiny = resolveTextSize(fakeMeasure, {
-    cropW: 10, metric: 10, strings: ['y'.repeat(500)], hexStrings: [], cell: 10, marginPx: 4,
-  });
+  const tiny = wmSize({ cropW: 10, metric: 10, text: 'y'.repeat(500), marginPx: 4 });
   ok('never goes below the floor', tiny.px >= TEXT.minPx);
+  ok('overflow flagged at the floor', tiny.overflow === true);
+}
+{
+  // Different faces have different widths, so a wider face clamps harder.
+  const text = 'Wide watermark string that will not fit';
+  const display = wmSize({ cropW: 600, metric: metricOf(600, 600), text, font: 'display' });
+  const sans = wmSize({ cropW: 600, metric: metricOf(600, 600), text, font: 'sans' });
+  ok('a wider face clamps harder', display.px <= sans.px,
+    `display ${display.px.toFixed(2)} vs sans ${sans.px.toFixed(2)}`);
+}
+{
+  // Optical scale must be folded into the clamp, or a scaled-up watermark
+  // would silently run off the edge instead of shrinking to fit.
+  const cropW = 800;
+  const metric = metricOf(800, 800);
+  const text = 'W'.repeat(40);
+
+  const plain = wmSize({ cropW, metric, text, scale: 1 });
+  const doubled = wmSize({ cropW, metric, text, scale: 2 });
+  ok('scaling up clamps the size down', doubled.px < plain.px,
+    `${doubled.px.toFixed(2)} vs ${plain.px.toFixed(2)}`);
+  ok('scaled watermark still fits the budget',
+    fakeMeasure(text, doubled.px * 2, 'sans') <= cropW + 0.001 || doubled.overflow);
+
+  const omitted = resolveWatermarkSize(fakeMeasure, {
+    cropW, metric, text: 'short', font: 'sans', marginPx: 0,
+  });
+  close('omitting scale equals scale 1', omitted.px, plain.px > 0 ? wmSize({
+    cropW, metric, text: 'short', scale: 1,
+  }).px : 0, 1e-9);
+}
+
+group('hex label sizing');
+{
+  const metric = metricOf(1000, 1000);
+  const labels = Array.from({ length: 10 }, () => '#AABBCC');
+
+  const roomy = resolveHexSize(fakeMeasure, {
+    metric, labels: ['#AABBCC'], font: 'mono', cell: 500,
+  });
+  close('unconstrained hex size is its own fraction', roomy.px, metric * TEXT.hexSizePct, 1e-9);
+
+  const tight = resolveHexSize(fakeMeasure, {
+    metric, labels, font: 'mono', cell: 100,
+  });
+  ok('narrow columns shrink the labels', tight.px < roomy.px,
+    `${tight.px.toFixed(2)} vs ${roomy.px.toFixed(2)}`);
+  ok('label fits its column',
+    fakeMeasure('#AABBCC', tight.px, 'mono') <= 100 * HEX_COLUMN_FILL + 0.001);
+}
+{
+  // THE POINT OF THE SPLIT: hex labels and the watermark are independent, so
+  // changing one must not move the other.
+  const metric = metricOf(1000, 1000);
+  const hexA = resolveHexSize(fakeMeasure, { metric, labels: ['#ABCDEF'], font: 'mono', cell: 400 });
+  const hexB = resolveHexSize(fakeMeasure, { metric, labels: ['#ABCDEF'], font: 'mono', cell: 400 });
+  close('hex size is stable', hexA.px, hexB.px, 1e-9);
+
+  // Hex sizing takes no watermark input at all, so no watermark setting can
+  // reach it. Assert the resolver's independence directly: a short mark fits
+  // at any scale, so its resolved size is the base fraction either way, and
+  // the label size is identical across both.
+  const wmSmall = wmSize({ metric, text: 'mark', scale: 0.6 });
+  const wmLarge = wmSize({ metric, text: 'mark', scale: 1.8 });
+  close('a fitting mark resolves to the base size at any scale',
+    wmSmall.px, wmLarge.px, 1e-9);
+  const hexAfter = resolveHexSize(fakeMeasure, {
+    metric, labels: ['#ABCDEF'], font: 'mono', cell: 400,
+  });
+  close('hex size unmoved by watermark settings', hexAfter.px, hexA.px, 1e-9);
+}
+
+group('multi-line text');
+{
+  ok('single line stays one', splitLines('© Jane').length === 1);
+  ok('newline splits', splitLines('line one\nline two').length === 2);
+  ok('CRLF splits too', splitLines('a\r\nb').length === 2);
+  ok('empty string yields nothing', splitLines('').length === 0);
+  ok('null-ish yields nothing', splitLines(undefined).length === 0);
+
+  // Leading and trailing blanks are stray keystrokes; interior blanks are
+  // deliberate spacing and must survive.
+  const trimmed = splitLines('\n\nfirst\nsecond\n\n');
+  ok('outer blank lines dropped', trimmed.length === 2, JSON.stringify(trimmed));
+  const interior = splitLines('first\n\nthird');
+  ok('interior blank kept', interior.length === 3, JSON.stringify(interior));
+  ok('interior blank is empty', interior[1] === '');
+
+  ok('lines are trimmed', splitLines('  padded  ')[0] === 'padded');
+}
+{
+  // The clamp cares about the WIDEST LINE, not the total string length. A
+  // four-line watermark is narrow even when it is long, and measuring the raw
+  // string would shrink the whole composition for no reason.
+  // Sized so the one-line form overflows the budget below and the stacked
+  // form does not — otherwise neither clamps and the comparison proves nothing.
+  const wide = 'X'.repeat(80);
+  const stacked = Array.from({ length: 4 }, () => 'X'.repeat(20)).join('\n');
+
+  ok('block width is the widest line',
+    measureBlock(fakeMeasure, stacked, 20, 'sans') === fakeMeasure('X'.repeat(20), 20, 'sans'));
+  ok('stacked text measures narrower than the same characters in one line',
+    measureBlock(fakeMeasure, stacked, 20, 'sans') < measureBlock(fakeMeasure, wide, 20, 'sans'));
+
+  const cropW = 600;
+  const metric = metricOf(600, 600);
+  const oneLine = wmSize({ cropW, metric, text: wide });
+  const fourLines = wmSize({ cropW, metric, text: stacked });
+  ok('breaking a long watermark into lines relieves the clamp',
+    fourLines.px > oneLine.px, `${fourLines.px.toFixed(2)} vs ${oneLine.px.toFixed(2)}`);
 }
 
 // ----------------------------------------------------------------- layout ---
@@ -290,51 +295,44 @@ group('layout');
 {
   const opts = {
     frameOn: true, borderPct: 0.035, radiusPct: 0.02,
-    captionOn: true, hasCaptionText: true, padLeftPct: 0.02, padRightPct: 0.02,
-    paletteOn: true, swatchCount: 5, swatchPct: 0.085,
+    paletteOn: true, showHex: true, swatchCount: 5, swatchPct: 0.085,
   };
   const cropW = 1600, cropH = 1200;
   const metric = metricOf(cropW, cropH);
-  const textPx = metric * 0.042;
-  const L = computeLayout({ cropW, cropH, opts, textPx, hexPx: textPx * HEX_SCALE });
+  const hexPx = metric * TEXT.hexSizePct;
+  const L = computeLayout({ cropW, cropH, opts, hexPx });
 
   close('canvas width = crop + two borders', L.width, cropW + 2 * L.border, 1e-9);
   ok('canvas is taller than crop + borders', L.height > cropH + 2 * L.border);
   close('outer radius = inner + border', L.outerRadius, L.radius + L.border, 1e-9);
   ok('image sits at the border inset', L.imgX === L.border && L.imgY === L.border);
 
-  // Palette row must sit below the image and above the caption.
-  ok('palette below image', L.swatchCY - L.swatchDia / 2 >= L.imgY + L.imgH - 0.001);
-  ok('hex labels below swatches', L.hexCY > L.swatchCY);
-  ok('caption below hex labels', L.captionCY > L.hexCY);
-  ok('caption inside canvas', L.captionCY + textPx / 2 <= L.height + 0.001);
-
-  // Caption anchors.
-  close('left anchor respects padding', L.captionLeftX, L.border + metric * 0.02, 1e-9);
-  close('centre anchor is the midline', L.captionCenterX, L.width / 2, 1e-9);
-  close('right anchor mirrors left', L.width - L.captionRightX, L.border + metric * 0.02, 1e-9);
+  ok('palette sits below the image', L.swatchCY - L.swatchDia / 2 >= L.imgY + L.imgH - 0.001);
+  ok('hex labels below the swatches', L.hexCY > L.swatchCY);
+  ok('hex labels inside the canvas', L.hexCY + hexPx / 2 <= L.height + 0.001);
 }
 {
   // metric must come from the CROP, so toggling the frame cannot resize text.
-  const base = { cropW: 1600, cropH: 1200, textPx: 50, hexPx: 40 };
-  const on = computeLayout({ ...base, opts: {
-    frameOn: true, borderPct: 0.05, radiusPct: 0.02, captionOn: false, hasCaptionText: false,
-    padLeftPct: 0, padRightPct: 0, paletteOn: false, swatchCount: 5, swatchPct: 0.085 } });
-  const off = computeLayout({ ...base, opts: {
-    frameOn: false, borderPct: 0.05, radiusPct: 0.02, captionOn: false, hasCaptionText: false,
-    padLeftPct: 0, padRightPct: 0, paletteOn: false, swatchCount: 5, swatchPct: 0.085 } });
+  const base = { cropW: 1600, cropH: 1200, hexPx: 40 };
+  const bare = {
+    borderPct: 0.05, radiusPct: 0.02,
+    paletteOn: false, showHex: false, swatchCount: 5, swatchPct: 0.085,
+  };
+  const on = computeLayout({ ...base, opts: { ...bare, frameOn: true } });
+  const off = computeLayout({ ...base, opts: { ...bare, frameOn: false } });
+
   close('metric unaffected by frame', on.metric, off.metric, 1e-9);
   ok('no frame means no border', off.border === 0 && off.outerRadius === 0);
-  close('no frame and no bar means canvas equals crop', off.height, 1200, 1e-9);
-  ok('no frame and no bar needs no background', off.hasBackground === false);
+  close('no frame and no palette means canvas equals crop', off.height, 1200, 1e-9);
+  ok('no frame and no palette needs no background', off.hasBackground === false);
 }
 {
   // Radius must never exceed half the shorter side.
   const L = computeLayout({
     cropW: 400, cropH: 200,
-    opts: { frameOn: true, borderPct: 0.02, radiusPct: 10, captionOn: false, hasCaptionText: false,
-            padLeftPct: 0, padRightPct: 0, paletteOn: false, swatchCount: 3, swatchPct: 0.085 },
-    textPx: 20, hexPx: 16,
+    opts: { frameOn: true, borderPct: 0.02, radiusPct: 10,
+            paletteOn: false, showHex: false, swatchCount: 3, swatchPct: 0.085 },
+    hexPx: 16,
   });
   ok('radius capped at half the short side', L.radius <= 100.001, String(L.radius));
 }
@@ -347,30 +345,33 @@ group('layout');
   ok('circles never exceed their column', twelve.dia <= twelve.cell);
 }
 {
-  const opts = {
-    frameOn: true, borderPct: 0.03, radiusPct: 0.02,
-    captionOn: true, hasCaptionText: true, padLeftPct: 0.02, padRightPct: 0.02,
-    paletteOn: false, swatchCount: 5, swatchPct: 0.085,
-  };
-  const L = computeLayout({ cropW: 1000, cropH: 1000, opts, textPx: 40, hexPx: 32 });
-  ok('overlong slots collide', captionsCollide(L, [600, 300, 600]));
-  ok('short slots do not', !captionsCollide(L, [80, 60, 80]));
-}
-{
-  // A caption bar under a borderless image: the two options are independent.
+  // A palette strip under a borderless image: the two options are independent.
   const L = computeLayout({
     cropW: 1000, cropH: 1000,
     opts: { frameOn: false, borderPct: 0.05, radiusPct: 0,
-            captionOn: true, hasCaptionText: true, padLeftPct: 0.02, padRightPct: 0.02,
-            paletteOn: true, swatchCount: 4, swatchPct: 0.085 },
-    textPx: 32, hexPx: 26,
+            paletteOn: true, showHex: true, swatchCount: 4, swatchPct: 0.085 },
+    hexPx: 26,
   });
-  ok('bar renders without a frame', L.showCaption && L.showPalette);
-  ok('canvas grows for the bar', L.height > 1000);
+  ok('strip renders without a frame', L.showPalette && L.showHex);
+  ok('canvas grows for the strip', L.height > 1000);
   ok('no border added', L.border === 0);
   close('width still equals the crop', L.width, 1000, 1e-9);
-  ok('background needed for the bar', L.hasBackground === true);
-  ok('caption anchored to the canvas edge', Math.abs(L.captionLeftX - 1000 * 0.02) < 1e-9);
+  ok('background needed for the strip', L.hasBackground === true);
+}
+{
+  // Hiding hex codes must reclaim their row, not leave a gap.
+  const common = {
+    cropW: 1000, cropH: 1000, hexPx: 30,
+  };
+  const withHex = computeLayout({ ...common, opts: {
+    frameOn: true, borderPct: 0.03, radiusPct: 0,
+    paletteOn: true, showHex: true, swatchCount: 5, swatchPct: 0.085 } });
+  const noHex = computeLayout({ ...common, opts: {
+    frameOn: true, borderPct: 0.03, radiusPct: 0,
+    paletteOn: true, showHex: false, swatchCount: 5, swatchPct: 0.085 } });
+  ok('hiding hex codes shortens the strip', noHex.height < withHex.height,
+    `${noHex.height.toFixed(1)} vs ${withHex.height.toFixed(1)}`);
+  ok('showHex reflected in layout', withHex.showHex === true && noHex.showHex === false);
 }
 
 // ------------------------------------------------------------------ done ---

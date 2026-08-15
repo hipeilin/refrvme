@@ -14,48 +14,48 @@ const OUT = process.env.OUT || '/home/claude/shots';
 
 const CASES = [
   {
-    name: 'a-classic-mat',
+    name: 'a-classic-mat', watermark: 'Passepartout',
     ratio: 'portrait45', orientation: 'portrait',
     set: { 'frame.borderPct': 0.045, 'frame.radiusPct': 0, 'palette.count': 5 },
-    text: { capLeft: 'Leica M6 · 35mm', capCenter: '', capRight: 'Portra 400' },
+  
   },
   {
-    name: 'b-rounded-thick',
+    name: 'b-rounded-thick', watermark: 'Costa da Caparica',
     ratio: 'square', orientation: 'portrait',
     set: { 'frame.borderPct': 0.07, 'frame.radiusPct': 0.05, 'palette.count': 6 },
-    text: { capLeft: '', capCenter: 'Costa da Caparica', capRight: '' },
+  
   },
   {
-    name: 'c-ten-swatches',
+    name: 'c-ten-swatches', watermark: 'No. 12\n2026',
     ratio: 'rednote', orientation: 'portrait',
     set: { 'frame.borderPct': 0.035, 'frame.radiusPct': 0.02, 'palette.count': 10 },
-    text: { capLeft: 'No. 12', capCenter: '', capRight: '2026' },
+  
   },
   {
-    name: 'd-landscape-wide',
+    name: 'd-landscape-wide', watermark: 'Atlantic\nf/8 · 1/500',
     ratio: 'landscape', orientation: 'landscape',
     set: { 'frame.borderPct': 0.03, 'frame.radiusPct': 0.01, 'palette.count': 4 },
-    text: { capLeft: 'Atlantic', capCenter: 'August', capRight: 'f/8 · 1/500' },
+  
   },
   {
-    name: 'e-story-no-palette',
+    name: 'e-story-no-palette', watermark: 'Lisbon\n2026',
     ratio: 'story', orientation: 'portrait',
     set: { 'frame.borderPct': 0.05, 'frame.radiusPct': 0.03 },
     off: ['palette.on'],
-    text: { capLeft: '', capCenter: 'Lisbon, 2026', capRight: '' },
+  
   },
   {
-    name: 'f-dark-frame',
+    name: 'f-dark-frame', watermark: 'PLATE IV',
     ratio: 'classic', orientation: 'landscape',
     set: { 'frame.borderPct': 0.05, 'frame.radiusPct': 0, 'palette.count': 5 },
-    colors: { 'frame.color': '#151515', 'caption.color': '#E8E6E1' },
-    text: { capLeft: 'Plate IV', capCenter: '', capRight: 'Silver gelatin' },
+    colors: { 'frame.color': '#151515', 'palette.hexColor': '#E8E6E1' },
+  
   },
   {
-    name: 'g-no-frame',
+    name: 'g-no-frame', watermark: '© your name',
     ratio: 'square', orientation: 'portrait',
     off: ['frame.on'],
-    text: { capLeft: '', capCenter: '', capRight: '' },
+  
   },
 ];
 
@@ -93,7 +93,7 @@ for (const c of CASES) {
   for (const [k, v] of Object.entries(c.set || {})) await setBound(k, v);
   for (const [k, v] of Object.entries(c.colors || {})) await setBound(k, v);
   for (const k of c.off || []) await setBound(k, false);
-  for (const [id, v] of Object.entries(c.text || {})) await page.fill(`#${id}`, v);
+  if (c.watermark) await page.fill('#wmText', c.watermark);
 
   await page.waitForTimeout(350);
 

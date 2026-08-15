@@ -1,11 +1,11 @@
 # Passepartout
 
 Crop a photograph to a platform aspect ratio, watermark it, mount it in a
-frame, caption it, and print its colour palette underneath. Everything runs in
-your browser with the Canvas API. No upload, no server, no analytics.
+frame, and print its colour palette underneath. Everything runs in your browser
+with the Canvas API. No upload, no server, no analytics.
 
-![A photograph mounted in a white frame, with a row of colour swatches and hex
-codes below it and a three-part caption along the bottom](docs/example.png)
+![A photograph mounted in a white frame, with a row of colour swatches and
+their hex codes printed below it](assets/example.png)
 
 ## Run it locally
 
@@ -40,27 +40,17 @@ running the files through Jekyll first.
 portrait/landscape switch. Drag the rectangle to move it, drag a trim mark to
 resize. Arrow keys nudge; `+` and `-` zoom.
 
-**Resize (reposition & zoom).** Tick it and the interaction turns round: the
-frame is pinned to the middle of the stage and the photograph is dragged and
-zoomed behind it, the way a profile-picture cropper works. Scroll, use the
-slider, or press `+` and `-` to zoom; drag or use the arrow keys to reposition.
-The whole photograph stays on screen while you aim, with everything outside the
-frame dimmed. Zooming out stops at the point where the image still covers the
-frame — its shorter side — so no edge is ever exposed and the export can never
-contain whitespace.
-
-**Watermark.** Text, colour, opacity, inset, and one of five anchor positions.
+**Watermark.** Text, colour, opacity, inset, and a 3x3 grid of nine anchor
+positions, with its own typeface and relative size. Press Enter in the text box
+for multiple lines; a line-spacing control appears once there is more than one.
 
 **Frame.** Border width, background colour, and a corner radius applied to the
 image. The outer corner radius follows the inner one plus the border width, so
 the border stays a constant width around the curve.
 
-**Caption.** Three slots along the bottom, left/middle/right, with independent
-left and right spacing controls.
-
 **Palette.** Two to ten dominant colours pulled from the cropped area, drawn
-as evenly spaced circles with their hex codes beneath. Click a swatch in the
-sidebar to copy its hex.
+as evenly spaced circles with their hex codes beneath, in a typeface and colour
+of your choosing. Click a swatch in the sidebar to copy its hex.
 
 **Export.** PNG, JPEG or WebP, at original resolution or capped to 2048, 1440
 or 1080 pixels wide.
@@ -77,41 +67,34 @@ js/
   lib/
     color.js           hex/rgb conversion, luminance
     palette.js         median-cut colour extraction
-    crop-geometry.js   crop rectangle maths, ratio presets, pan & zoom limits
+    crop-geometry.js   crop rectangle maths, ratio presets
     text.js            the shared font specification
     layout.js          composition geometry
   ui/
-    cropper.js         pointer-driven crop overlay, both gesture modes
+    cropper.js         pointer-driven crop overlay
     controls.js        generic control binding
 test/
-  logic.test.mjs       97 assertions, runs in Node
-  browser.test.mjs     53 assertions, runs in Playwright
+  logic.test.mjs       85 assertions, runs in Node
+  browser.test.mjs     30 assertions, runs in Playwright
   visual.mjs           renders a matrix of configurations to PNG
+assets/
+  example.png          the screenshot at the top of this file
+  fonts/               drop Bigola Display Regular.otf here (see its README)
 ```
+
+There is no separate documentation site. This README covers setup and the
+design decisions; the reasoning behind individual choices lives in comments
+next to the code it explains. `js/lib/text.js` and `js/lib/layout.js` are the
+two worth reading first if you plan to change how anything is positioned.
 
 ### The pipeline
 
 ```
-crop → watermark → frame → palette → caption
+crop → watermark → frame → palette
 ```
 
 The order matters. Burning the watermark into the cropped image before the
 frame goes on means switching the frame on cannot change the watermark's size.
-
-### Two gestures, one rectangle
-
-The crop rect is the only state either gesture mode writes, and it always
-lives in source-image pixels. Dragging a trim mark and dragging the photograph
-are the same edit expressed two ways — panning the image right subtracts from
-`crop.x`, zooming in shrinks `crop.w` about the anchor point — so nothing
-downstream needs to know which mode produced the rect.
-
-Zoom is not stored. It is read back out of the rect as `maxW / crop.w`, where
-`maxW` is the widest rect of the frame's shape that fits inside the image.
-Defining zoom 1 that way rather than as the image's natural size is what makes
-whitespace unreachable: the rect is clamped to the image, so the frame is
-always fully covered and zooming out simply runs out of room at the shorter
-side.
 
 ### Everything scales from one number
 
@@ -132,20 +115,38 @@ export renders at full resolution, from the same settings object. Because
 every measurement is a fraction of `metric`, the preview is an exact
 proportional twin of the file you save.
 
-### One font specification
+### Two independent text sizes
 
-`js/lib/text.js` owns the font. The watermark and the caption always render at
-the same family, weight and pixel size, because one function decides that size
-and nothing else in the codebase sets `ctx.font` with a size it computed
-itself.
+`js/lib/text.js` owns everything about canvas text. There are two pieces of it
+and they are sized separately:
 
-`resolveTextSize` runs a single clamp across the watermark and all three
-caption slots. If one string is too long, they all shrink by the same factor
-and stay measurably equal.
+- `resolveWatermarkSize` — a fraction of `metric`, times the user's optical
+  `scale`, shrunk if the widest line would overrun the image width.
+- `resolveHexSize` — its own fraction of `metric`, shrunk if a label would
+  overrun its palette column.
 
-Hex labels are deliberate metadata, so they sit at a fixed 0.8 of the matched
-size and clamp *separately* against their own column width. Folding them into
-the main clamp would mean adding a tenth swatch silently shrank your caption.
+They do not consult each other. An earlier version tied the labels to the
+watermark at a fixed ratio, because a caption row shared the watermark's size
+and the labels hung off that. Once the caption went, keeping them coupled would
+have meant nudging the watermark's size silently resized the swatch labels.
+
+`scale` is folded into the measurement rather than applied after it. Text width
+is linear in size, so measuring at `base * scale` gives the true drawn width and
+a scaled-up watermark still cannot overflow.
+
+### Multi-line watermarks
+
+`fillText` has no concept of a newline. It does not wrap, and it does not
+error — it simply draws nothing for the `\n`. So lines are split and
+positioned by hand in `drawTextBlock`.
+
+The block is anchored by its outer ink edges rather than by baselines: with a
+bottom anchor, the *last* line's descender sits on the margin. A two-line
+watermark therefore occupies the same bottom edge a one-line one did, growing
+upward instead of creeping off the canvas.
+
+The size clamp measures the widest *line*, not the whole string, so breaking a
+long watermark across lines relieves the clamp instead of shrinking it.
 
 ### Adding a control
 
@@ -179,16 +180,21 @@ node test/visual.mjs          # writes a matrix of renders to inspect
 ```
 
 `browser.test.mjs` instruments `CanvasRenderingContext2D.prototype.font` and
-asserts on what the renderer actually set, which is how the watermark/caption
-match is verified rather than assumed.
+asserts on what the renderer actually set, so typeface and size claims are
+verified against the real draw calls rather than assumed.
 
 ## Things worth knowing
 
-**No webfonts.** System stacks only. A font CDN would mean a third-party
-request on every page load, which would make the privacy claim in the header
-untrue, and it would block the first render. If you add one, await
-`document.fonts.ready` before rendering: `measureText` fails silently against
-an unloaded face and returns widths for the wrong glyphs.
+**Fonts are served from this repository, never a CDN.** A font CDN would mean
+a third-party request on every page load, which would make the privacy claim
+in the header untrue. `assets/fonts/` holds the custom display face; see the
+README in that folder for how to swap it.
+
+The app awaits `document.fonts.ready` before the first render, and it must:
+`measureText` fails *silently* against an unloaded face, returning widths for
+the wrong glyphs, so the size clamp gets tuned to metrics that never appear on
+screen. If the font file is missing the app renders in a serif fallback and
+says so under the watermark controls.
 
 **Very large images.** A 50-megapixel file decodes fine on desktop but can hit
 memory limits on mobile Safari. If you need to handle those, decode with

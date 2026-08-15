@@ -11,6 +11,7 @@
 
 import { RATIO_PRESETS, ratioLabel } from '../lib/crop-geometry.js';
 import { rgbToHex } from '../lib/color.js';
+import { splitLines } from '../lib/text.js';
 
 /** Read `obj.a.b` from a dotted path. */
 function getPath(obj, path) {
@@ -23,6 +24,24 @@ function setPath(obj, path, value) {
   const last = keys.pop();
   const target = keys.reduce((o, k) => o[k], obj);
   target[last] = value;
+}
+
+/**
+ * Show or hide controls that only apply in certain configurations.
+ *
+ * Quality does nothing for PNG; line spacing does nothing until the watermark
+ * has a second line. Leaving them visible invites the user to drag a slider
+ * and see no change.
+ *
+ * @param {HTMLElement} root
+ * @param {object} state
+ */
+function syncConditionalFields(root, state) {
+  const quality = root.querySelector('#qualityField');
+  if (quality) quality.hidden = state.export.format === 'image/png';
+
+  const lineHeight = root.querySelector('#lineHeightField');
+  if (lineHeight) lineHeight.hidden = splitLines(state.watermark.text).length < 2;
 }
 
 /** Format a value for its readout. */
@@ -70,9 +89,9 @@ export function bindControls({ root, store, onChange }) {
       el.closest('.panel')?.classList.toggle('is-muted', !el.checked);
     }
 
-    // The quality slider is meaningless for PNG.
-    const qualityField = root.querySelector('#qualityField');
-    if (qualityField) qualityField.hidden = state.export.format === 'image/png';
+    // Hide controls that cannot affect anything in the current configuration,
+    // rather than leaving dead sliders in the rail.
+    syncConditionalFields(root, state);
   }
 
   // ── Generic input listener ───────────────────────────────────────────────
@@ -97,9 +116,8 @@ export function bindControls({ root, store, onChange }) {
       if (el.type === 'checkbox' && path.endsWith('.on')) {
         el.closest('.panel')?.classList.toggle('is-muted', !el.checked);
       }
-      if (path === 'export.format') {
-        const qf = root.querySelector('#qualityField');
-        if (qf) qf.hidden = value === 'image/png';
+      if (path === 'export.format' || path === 'watermark.text') {
+        syncConditionalFields(root, store.get());
       }
 
       onChange();

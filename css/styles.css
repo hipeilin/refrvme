@@ -12,6 +12,19 @@
  * The system sans carries the prose. No webfonts: see index.html.
  */
 
+/* ══ Custom face ═════════════════════════════════════════════════════════ */
+/* Served from this repository, not a CDN, so the privacy claim in the header
+   stays true. `font-display: block` matters here: with `swap` the canvas can
+   render one frame in the fallback face before the real one arrives, and that
+   frame is what a fast screenshot or an immediate export would capture. */
+@font-face {
+  font-family: "Bigola Display";
+  src: url("../assets/fonts/Bigola%20Display%20Regular.otf") format("opentype");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: block;
+}
+
 /* ══ Tokens ══════════════════════════════════════════════════════════════ */
 :root {
   --void:      #0B0C0E;   /* stage background */
@@ -345,40 +358,6 @@ button, input, select { font: inherit; color: inherit; }
   opacity: 0.55;               /* dim the parts being cropped away */
 }
 
-/* ── Fixed-frame mode ──────────────────────────────────────────────────────
-   The tick-box swaps the interaction round: the frame is nailed to the middle
-   of the stage and the image is dragged and zoomed behind it. The cropper
-   becomes a viewport with a definite size — the image is taken out of the flow
-   and transformed, so it can no longer size its own container.               */
-#cropView { width: 100%; }
-
-.cropper--resize {
-  display: block;
-  width: 100%;
-  height: calc(100vh - var(--head-h) - 150px);
-  overflow: hidden;               /* the image travels well past the stage */
-  cursor: grab;
-  touch-action: none;
-}
-.cropper--resize.is-dragging { cursor: grabbing; }
-
-.cropper--resize img {
-  position: absolute;
-  top: 0;
-  left: 0;
-  max-width: none;
-  max-height: none;
-  transform-origin: 0 0;
-  /* Full strength here: what marks the crop is the shade OUTSIDE the frame,
-     so the part being kept has to read as the brighter of the two. */
-  opacity: 1;
-  will-change: transform;
-}
-
-/* Nothing to grab on the frame itself — it does not move in this mode. */
-.cropper--resize .crop-mark { display: none; }
-.cropper--resize .crop-rect { cursor: inherit; }
-
 .crop-rect {
   position: absolute;
   cursor: move;
@@ -386,12 +365,6 @@ button, input, select { font: inherit; color: inherit; }
      positioned overlay divs. */
   box-shadow: 0 0 0 9999px rgba(11, 12, 14, 0.66);
   outline: 1px solid rgba(236, 234, 230, 0.85);
-}
-
-/* Lighter shade in fixed-frame mode: the image underneath is at full opacity,
-   and the part being cropped away has to stay legible enough to aim with. */
-.cropper--resize .crop-rect {
-  box-shadow: 0 0 0 9999px rgba(11, 12, 14, 0.62);
 }
 
 /* Rule-of-thirds guides, visible only while dragging so they don't clutter. */
@@ -520,6 +493,15 @@ button, input, select { font: inherit; color: inherit; }
   transition: border-color var(--t-fast);
 }
 .input::placeholder { color: var(--ink-3); }
+
+/* Multi-line watermark input. Vertical-only resize: horizontal dragging would
+   push it past the rail's width. */
+.input--area {
+  resize: vertical;
+  min-height: 58px;
+  line-height: 1.4;
+  font-family: inherit;
+}
 .input:focus { border-color: var(--ink-2); outline-offset: 1px; }
 
 select.input { cursor: pointer; appearance: none; padding-right: 26px;
@@ -678,23 +660,16 @@ input[type="color"]::-moz-color-swatch { border: 0; border-radius: 2px; }
 }
 .segmented .seg { flex: 1; padding: 5px 8px; }
 
-@font-face {
-  font-family: 'Bigola Display';
-  src: url('../assets/fonts/Bigola Display Regular.otf') format('opentype');
-  font-weight: normal;
-  font-style: normal;
-}
-
 /* ══ Watermark position picker ═══════════════════════════════════════════ */
-/* A miniature of the image: seven anchor points in the places they map to. */
+/* A miniature of the image: nine anchor cells laid out where they map to. */
 .grid-pick {
-  position: relative;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  width: 120px;
+  grid-template-rows: repeat(3, 1fr);
+  gap: 4px;
+  width: 108px;
   aspect-ratio: 4 / 3;
-  padding: 6px;
+  padding: 5px;
   border: 1px solid var(--edge-hi);
   border-radius: var(--r-sm);
   background: var(--panel-in);
@@ -708,15 +683,6 @@ input[type="color"]::-moz-color-swatch { border: 0; border-radius: 2px; }
 }
 .grid-pick button:hover { border-color: var(--ink-3); }
 .grid-pick button[aria-checked="true"] { background: var(--ink); border-color: var(--ink); }
-.grid-pick button[data-position="center"] {
-  position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  width: 26px; height: 18px;
-  border-radius: 3px;
-  background: var(--panel);
-}
-.grid-pick button[data-position="center"][aria-checked="true"] { background: var(--ink); }
 
 /* ══ Swatch readout ══════════════════════════════════════════════════════ */
 .swatch-readout {
@@ -782,9 +748,6 @@ input[type="color"]::-moz-color-swatch { border: 0; border-radius: 2px; }
   #previewCanvas,
   .cropper img { max-height: 52vh; }
 
-  .cropper--resize { height: 52vh; }
-  .cropper--resize img { max-height: none; }
-
   .masthead { padding: 0 12px; }
   .privacy-note { display: none; }
 }
@@ -801,3 +764,7 @@ input[type="color"]::-moz-color-swatch { border: 0; border-radius: 2px; }
     animation-duration: 0.01ms !important;
   }
 }
+
+/* Four typeface options don't fit one row in the rail, so allow a wrap. */
+.segmented--wrap { flex-wrap: wrap; }
+.segmented--wrap .seg { flex: 1 1 44%; }

@@ -1,302 +1,300 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Passepartout — crop, frame and watermark your photographs</title>
-  <meta name="description"
-    content="Crop to platform ratios, add a watermark, mount the image in a frame and print its colour palette. Everything runs in your browser; no image is ever uploaded.">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Passepartout — crop, watermark and frame your photographs</title>
+<meta name="description" content="Crop to platform ratios, add a watermark, mount the image in a frame and print its colour palette beneath. Everything runs in your browser; no image is ever uploaded.">
 
-  <!-- System font stacks only. A webfont CDN would mean a third-party request
+<!-- System font stacks only. A webfont CDN would mean a third-party request
      on every load, which would make the "nothing leaves your device" claim
      below untrue, and would block the first render. -->
-  <link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/styles.css">
 </head>
-
 <body>
 
-  <!-- ══ Header ══════════════════════════════════════════════════════════ -->
-  <header class="masthead">
-    <div class="masthead__mark">
-      <span class="masthead__name">Passepartout</span>
-      <span class="masthead__sub">crop · watermark · frame · palette</span>
+<!-- ══ Header ══════════════════════════════════════════════════════════ -->
+<header class="masthead">
+  <div class="masthead__mark">
+    <span class="masthead__name">Passepartout</span>
+    <span class="masthead__sub">crop · watermark · frame · palette</span>
+  </div>
+
+  <div class="masthead__actions">
+    <span class="privacy-note" title="Images are processed with the Canvas API in this tab.">
+      Nothing leaves your device
+    </span>
+    <button type="button" class="btn btn--ghost" id="resetAll" hidden>Reset all</button>
+    <button type="button" class="btn btn--solid" id="download" disabled>Save image</button>
+  </div>
+</header>
+
+<main class="workspace">
+
+  <!-- ══ Stage ════════════════════════════════════════════════════════ -->
+  <section class="stage" aria-label="Preview">
+
+    <!-- Empty state: doubles as the drop target. -->
+    <div class="dropzone" id="dropzone">
+      <label class="dropzone__inner" for="fileInput">
+        <span class="dropzone__marks" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+        </span>
+        <span class="dropzone__title">Drop a photograph here</span>
+        <span class="dropzone__hint">or choose a file — JPEG, PNG, WebP, GIF</span>
+      </label>
+      <input type="file" id="fileInput" accept="image/*" class="visually-hidden">
     </div>
 
-    <div class="masthead__actions">
-      <span class="privacy-note" title="Images are processed with the Canvas API in this tab.">
-        Nothing leaves your device
-      </span>
-      <button type="button" class="btn btn--ghost" id="resetAll" hidden>Reset all</button>
-      <button type="button" class="btn btn--solid" id="download" disabled>Save image</button>
+    <!-- Result preview -->
+    <div class="stage__view" id="previewView" hidden>
+      <div class="preview-frame">
+        <canvas id="previewCanvas" aria-label="Preview of the finished image"></canvas>
+      </div>
+      <p class="stage__meta" id="previewMeta"></p>
     </div>
-  </header>
 
-  <main class="workspace">
-
-    <!-- ══ Stage ════════════════════════════════════════════════════════ -->
-    <section class="stage" aria-label="Preview">
-
-      <!-- Empty state: doubles as the drop target. -->
-      <div class="dropzone" id="dropzone">
-        <label class="dropzone__inner" for="fileInput">
-          <span class="dropzone__marks" aria-hidden="true">
-            <span></span><span></span><span></span><span></span>
-          </span>
-          <span class="dropzone__title">Drop a photograph here</span>
-          <span class="dropzone__hint">or choose a file — JPEG, PNG, WebP, GIF</span>
-        </label>
-        <input type="file" id="fileInput" accept="image/*" class="visually-hidden">
+    <!-- Crop editor -->
+    <div class="stage__view" id="cropView" hidden>
+      <div class="cropper" id="cropper" tabindex="0"
+           aria-label="Crop area. Drag to move, drag a corner to resize, arrow keys to nudge.">
+        <img id="cropImage" alt="" draggable="false">
+        <div class="crop-rect" id="cropRect"></div>
       </div>
+      <p class="stage__meta" id="cropMeta"></p>
+    </div>
 
-      <!-- Result preview -->
-      <div class="stage__view" id="previewView" hidden>
-        <div class="preview-frame">
-          <canvas id="previewCanvas" aria-label="Preview of the finished image"></canvas>
-        </div>
-        <p class="stage__meta" id="previewMeta"></p>
+    <!-- Stage mode switch -->
+    <div class="stage__switch" id="stageSwitch" hidden role="tablist" aria-label="Stage view">
+      <button type="button" class="seg" data-view="preview" role="tab" aria-selected="true">Result</button>
+      <button type="button" class="seg" data-view="crop" role="tab" aria-selected="false">Crop</button>
+    </div>
+
+    <p class="stage__warning" id="warnings" hidden role="status"></p>
+  </section>
+
+  <!-- ══ Control rail ═════════════════════════════════════════════════ -->
+  <aside class="rail" id="rail" aria-label="Settings">
+
+    <!-- ── Source ──────────────────────────────────────────────────── -->
+    <section class="panel">
+      <h2 class="panel__title">Source</h2>
+      <div class="field">
+        <button type="button" class="btn btn--wide" id="replaceImage">Choose a different photo</button>
+        <p class="field__note" id="sourceMeta">No image loaded</p>
       </div>
-
-      <!-- Crop editor -->
-      <div class="stage__view" id="cropView" hidden>
-        <div class="cropper" id="cropper" tabindex="0"
-          aria-label="Crop area. Drag to move, drag a corner to resize, arrow keys to nudge.">
-          <img id="cropImage" alt="" draggable="false">
-          <div class="crop-rect" id="cropRect"></div>
-        </div>
-        <p class="stage__meta" id="cropMeta"></p>
-      </div>
-
-      <!-- Stage mode switch -->
-      <div class="stage__switch" id="stageSwitch" hidden role="tablist" aria-label="Stage view">
-        <button type="button" class="seg" data-view="preview" role="tab" aria-selected="true">Result</button>
-        <button type="button" class="seg" data-view="crop" role="tab" aria-selected="false">Crop</button>
-      </div>
-
-      <p class="stage__warning" id="warnings" hidden role="status"></p>
     </section>
 
-    <!-- ══ Control rail ═════════════════════════════════════════════════ -->
-    <aside class="rail" id="rail" aria-label="Settings">
+    <!-- ── Crop ────────────────────────────────────────────────────── -->
+    <section class="panel">
+      <h2 class="panel__title">Crop</h2>
 
-      <!-- ── Source ──────────────────────────────────────────────────── -->
-      <section class="panel">
-        <h2 class="panel__title">Source</h2>
-        <div class="field">
-          <button type="button" class="btn btn--wide" id="replaceImage">Choose a different photo</button>
-          <p class="field__note" id="sourceMeta">No image loaded</p>
+      <div class="field">
+        <span class="field__label">Aspect ratio</span>
+        <div class="chips" id="ratioChips"><!-- built by controls.js --></div>
+      </div>
+
+      <div class="field">
+        <span class="field__label">Orientation</span>
+        <div class="segmented" id="orientation" role="radiogroup" aria-label="Orientation">
+          <button type="button" class="seg" data-orientation="portrait" role="radio" aria-checked="true">Portrait</button>
+          <button type="button" class="seg" data-orientation="landscape" role="radio" aria-checked="false">Landscape</button>
         </div>
-      </section>
+      </div>
 
-      <!-- ── Crop ────────────────────────────────────────────────────── -->
-      <section class="panel">
-        <h2 class="panel__title">Crop</h2>
+      <div class="field field--row">
+        <button type="button" class="btn btn--wide" id="recenterCrop">Recentre crop</button>
+      </div>
+    </section>
 
-        <div class="field">
-          <span class="field__label">Aspect ratio</span>
-          <div class="chips" id="ratioChips"><!-- built by controls.js --></div>
-        </div>
-
-        <div class="field">
-          <span class="field__label">Orientation</span>
-          <div class="segmented" id="orientation" role="radiogroup" aria-label="Orientation">
-            <button type="button" class="seg" data-orientation="portrait" role="radio"
-              aria-checked="true">Portrait</button>
-            <button type="button" class="seg" data-orientation="landscape" role="radio"
-              aria-checked="false">Landscape</button>
-          </div>
-        </div>
-
-        <label class="check">
-          <input type="checkbox" data-bind="crop.resizeMode" id="resizeMode">
-          <span>Resize: reposition &amp; zoom the image</span>
+    <!-- ── Watermark ───────────────────────────────────────────────── -->
+    <section class="panel">
+      <h2 class="panel__title">
+        Watermark
+        <label class="switch">
+          <input type="checkbox" data-bind="watermark.on" checked>
+          <span class="switch__track" aria-hidden="true"></span>
+          <span class="visually-hidden">Show watermark</span>
         </label>
+      </h2>
 
-        <div class="field" id="zoomField" hidden>
-          <label class="range-field">
-            <span class="field__label">Zoom <output id="zoomReadout">1.00×</output></span>
-            <input type="range" id="zoomRange" min="100" max="800" step="1" value="100"
-              aria-label="Zoom the image inside the frame">
-          </label>
-          <p class="field__note">
-            Drag the photograph to reposition it; scroll or use the slider to zoom.
-            Zooming out stops where the image still fills the frame, so no edge is ever exposed.
-          </p>
+      <div class="field">
+        <label class="field__label" for="wmText">Text</label>
+        <textarea class="input input--area" id="wmText" data-bind="watermark.text"
+                  rows="2" maxlength="200" placeholder="© your name&#10;second line"></textarea>
+        <p class="field__note">Press Enter for a new line.</p>
+      </div>
+
+      <div class="field">
+        <span class="field__label">Position</span>
+        <div class="grid-pick" id="wmPosition" role="radiogroup" aria-label="Watermark position">
+          <button type="button" data-position="tl" role="radio" aria-checked="false" aria-label="Top left"></button>
+          <button type="button" data-position="tc" role="radio" aria-checked="false" aria-label="Top centre"></button>
+          <button type="button" data-position="tr" role="radio" aria-checked="false" aria-label="Top right"></button>
+          <button type="button" data-position="ml" role="radio" aria-checked="false" aria-label="Middle left"></button>
+          <button type="button" data-position="mc" role="radio" aria-checked="false" aria-label="Centre"></button>
+          <button type="button" data-position="mr" role="radio" aria-checked="false" aria-label="Middle right"></button>
+          <button type="button" data-position="bl" role="radio" aria-checked="false" aria-label="Bottom left"></button>
+          <button type="button" data-position="bc" role="radio" aria-checked="false" aria-label="Bottom centre"></button>
+          <button type="button" data-position="br" role="radio" aria-checked="true" aria-label="Bottom right"></button>
         </div>
+      </div>
 
-        <div class="field field--row">
-          <button type="button" class="btn btn--wide" id="recenterCrop">Recentre crop</button>
-        </div>
-      </section>
-
-      <!-- ── Watermark ───────────────────────────────────────────────── -->
-      <section class="panel">
-        <h2 class="panel__title">
-          Watermark
-          <label class="switch">
-            <input type="checkbox" data-bind="watermark.on" checked>
-            <span class="switch__track" aria-hidden="true"></span>
-            <span class="visually-hidden">Show watermark</span>
-          </label>
-        </h2>
-
-        <div class="field">
-          <label class="field__label" for="wmText">Text</label>
-          <textarea class="input" id="wmText" data-bind="watermark.text" maxlength="80" placeholder="© your name"
-            rows="3"></textarea>
-
-        </div>
-
-        <div class="field">
-          <span class="field__label">Position</span>
-          <div class="grid-pick" id="wmPosition" role="radiogroup" aria-label="Watermark position">
-            <button type="button" data-position="tl" role="radio" aria-checked="false" aria-label="Top left"></button>
-            <button type="button" data-position="tc" role="radio" aria-checked="false" aria-label="Top centre"></button>
-            <button type="button" data-position="tr" role="radio" aria-checked="false" aria-label="Top right"></button>
-            <button type="button" data-position="bl" role="radio" aria-checked="false"
-              aria-label="Bottom left"></button>
-            <button type="button" data-position="bc" role="radio" aria-checked="false"
-              aria-label="Bottom centre"></button>
-            <button type="button" data-position="br" role="radio" aria-checked="true"
-              aria-label="Bottom right"></button>
-            <button type="button" data-position="center" role="radio" aria-checked="false" aria-label="Centre"></button>
-          </div>
-        </div>
-
-        <div class="field field--split">
-          <label class="swatch-field">
-            <span class="field__label">Colour</span>
-            <input type="color" data-bind="watermark.color" value="#FFFFFF">
-          </label>
-          <label class="range-field">
-            <span class="field__label">Opacity <output data-for="watermark.alpha"></output></span>
-            <input type="range" data-bind="watermark.alpha" min="0.05" max="1" step="0.05" data-format="percent">
-          </label>
-        </div>
-
-        <label class="range-field">
-          <span class="field__label">Inset from edge <output data-for="watermark.marginPct"></output></span>
-          <input type="range" data-bind="watermark.marginPct" min="0.01" max="0.12" step="0.005" data-format="percent">
-        </label>
-      </section>
-
-      <!-- ── Frame ───────────────────────────────────────────────────── -->
-      <section class="panel">
-        <h2 class="panel__title">
-          Frame
-          <label class="switch">
-            <input type="checkbox" data-bind="frame.on">
-            <span class="switch__track" aria-hidden="true"></span>
-            <span class="visually-hidden">Show frame</span>
-          </label>
-        </h2>
-
-        <label class="range-field">
-          <span class="field__label">Border width <output data-for="frame.borderPct"></output></span>
-          <input type="range" data-bind="frame.borderPct" min="0" max="0.15" step="0.0025" data-format="percent">
-        </label>
-
-        <label class="range-field">
-          <span class="field__label">Image corner radius <output data-for="frame.radiusPct"></output></span>
-          <input type="range" data-bind="frame.radiusPct" min="0" max="0.12" step="0.0025" data-format="percent">
-        </label>
-
-        <div class="field field--split">
-          <label class="swatch-field">
-            <span class="field__label">Background</span>
-            <input type="color" data-bind="frame.color" value="#FFFFFF">
-          </label>
-          <label class="check">
-            <input type="checkbox" data-bind="frame.transparent">
-            <span>Transparent</span>
-          </label>
-        </div>
-      </section>
-
-      <!-- ── Palette ─────────────────────────────────────────────────── -->
-      <section class="panel">
-        <h2 class="panel__title">
-          Colour palette
-          <label class="switch">
-            <input type="checkbox" data-bind="palette.on">
-            <span class="switch__track" aria-hidden="true"></span>
-            <span class="visually-hidden">Show colour palette</span>
-          </label>
-        </h2>
-        <p class="panel__note">Dominant colours of the cropped area, printed beneath it.</p>
-
-        <label class="range-field">
-          <span class="field__label">Number of colours <output data-for="palette.count"></output></span>
-          <input type="range" data-bind="palette.count" min="2" max="10" step="1">
-        </label>
-
-        <label class="range-field">
-          <span class="field__label">Swatch size <output data-for="palette.swatchPct"></output></span>
-          <input type="range" data-bind="palette.swatchPct" min="0.03" max="0.14" step="0.0025" data-format="percent">
-        </label>
-
-        <label class="check">
-          <input type="checkbox" data-bind="palette.showHex" checked>
-          <span>Print hex codes</span>
-        </label>
-
+      <div class="field field--split">
         <label class="swatch-field">
-          <span class="field__label">Hex label colour</span>
-          <input type="color" data-bind="palette.hexColor" value="#111111">
+          <span class="field__label">Colour</span>
+          <input type="color" data-bind="watermark.color" value="#FFFFFF">
         </label>
+        <label class="range-field">
+          <span class="field__label">Opacity <output data-for="watermark.alpha"></output></span>
+          <input type="range" data-bind="watermark.alpha" min="0.05" max="1" step="0.05" data-format="percent">
+        </label>
+      </div>
 
-        <div class="swatch-readout" id="swatchReadout" aria-live="polite"></div>
-      </section>
+      <label class="range-field">
+        <span class="field__label">Inset from edge <output data-for="watermark.marginPct"></output></span>
+        <input type="range" data-bind="watermark.marginPct" min="0.01" max="0.12" step="0.005" data-format="percent">
+      </label>
 
-      <!-- ── Typeface ────────────────────────────────────────────────── -->
-      <section class="panel">
-        <h2 class="panel__title">Typeface</h2>
-        <p class="panel__note">Hex labels use the typeface below.</p>
-        <div class="segmented" id="fontPick" role="radiogroup" aria-label="Typeface">
-          <button type="button" class="seg" data-font="sans" role="radio" aria-checked="true">Sans</button>
+      <label class="range-field">
+        <span class="field__label">Relative size <output data-for="watermark.scale"></output></span>
+        <input type="range" data-bind="watermark.scale" min="0.6" max="2" step="0.05">
+      </label>
+
+      <label class="range-field" id="lineHeightField">
+        <span class="field__label">Line spacing <output data-for="watermark.lineHeight"></output></span>
+        <input type="range" data-bind="watermark.lineHeight" min="0.9" max="2" step="0.05">
+      </label>
+
+      <div class="field">
+        <span class="field__label">Watermark typeface</span>
+        <div class="segmented segmented--wrap" id="wmFontPick" role="radiogroup" aria-label="Watermark typeface">
+          <button type="button" class="seg" data-font="display" role="radio" aria-checked="true">Bigola</button>
+          <button type="button" class="seg" data-font="sans" role="radio" aria-checked="false">Sans</button>
           <button type="button" class="seg" data-font="serif" role="radio" aria-checked="false">Serif</button>
           <button type="button" class="seg" data-font="mono" role="radio" aria-checked="false">Mono</button>
         </div>
-      </section>
+        <p class="field__note" id="fontNote" hidden></p>
+        <p class="field__note">Relative size 1 is the unadjusted default. Different typefaces at one pixel size rarely look equal, so nudge it to balance the mark against the image by eye.</p>
+      </div>
+    </section>
 
-      <!-- ── Export ──────────────────────────────────────────────────── -->
-      <section class="panel">
-        <h2 class="panel__title">Export</h2>
-
-        <div class="field">
-          <label class="field__label" for="exFormat">Format</label>
-          <select class="input" id="exFormat" data-bind="export.format">
-            <option value="image/png">PNG — lossless, keeps transparency</option>
-            <option value="image/jpeg">JPEG — smaller files</option>
-            <option value="image/webp">WebP — smaller still</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label class="field__label" for="exSize">Image width</label>
-          <select class="input" id="exSize" data-bind="export.maxWidth" data-type="number">
-            <option value="0">Original resolution</option>
-            <option value="2048">2048 px</option>
-            <option value="1440">1440 px</option>
-            <option value="1080">1080 px — social</option>
-          </select>
-        </div>
-
-        <label class="range-field" id="qualityField">
-          <span class="field__label">Quality <output data-for="export.quality"></output></span>
-          <input type="range" data-bind="export.quality" min="0.5" max="1" step="0.01" data-format="percent">
+    <!-- ── Frame ───────────────────────────────────────────────────── -->
+    <section class="panel">
+      <h2 class="panel__title">
+        Frame
+        <label class="switch">
+          <input type="checkbox" data-bind="frame.on" checked>
+          <span class="switch__track" aria-hidden="true"></span>
+          <span class="visually-hidden">Show frame</span>
         </label>
+      </h2>
+      <p class="panel__note">The background colour also fills the palette strip below.</p>
 
-        <p class="field__note" id="exportMeta"></p>
-      </section>
+      <label class="range-field">
+        <span class="field__label">Border width <output data-for="frame.borderPct"></output></span>
+        <input type="range" data-bind="frame.borderPct" min="0" max="0.15" step="0.0025" data-format="percent">
+      </label>
 
-      <footer class="rail__foot">
-        <p>Built with the Canvas API. No server, no upload, no analytics.</p>
-      </footer>
-    </aside>
-  </main>
+      <label class="range-field">
+        <span class="field__label">Image corner radius <output data-for="frame.radiusPct"></output></span>
+        <input type="range" data-bind="frame.radiusPct" min="0" max="0.12" step="0.0025" data-format="percent">
+      </label>
 
-  <script type="module" src="js/main.js"></script>
+      <div class="field field--split">
+        <label class="swatch-field">
+          <span class="field__label">Background</span>
+          <input type="color" data-bind="frame.color" value="#FFFFFF">
+        </label>
+        <label class="check">
+          <input type="checkbox" data-bind="frame.transparent">
+          <span>Transparent</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- ── Palette ─────────────────────────────────────────────────── -->
+    <section class="panel">
+      <h2 class="panel__title">
+        Colour palette
+        <label class="switch">
+          <input type="checkbox" data-bind="palette.on" checked>
+          <span class="switch__track" aria-hidden="true"></span>
+          <span class="visually-hidden">Show colour palette</span>
+        </label>
+      </h2>
+      <p class="panel__note">Dominant colours of the cropped area, printed in a strip beneath it.</p>
+
+      <label class="range-field">
+        <span class="field__label">Number of colours <output data-for="palette.count"></output></span>
+        <input type="range" data-bind="palette.count" min="2" max="10" step="1">
+      </label>
+
+      <label class="range-field">
+        <span class="field__label">Swatch size <output data-for="palette.swatchPct"></output></span>
+        <input type="range" data-bind="palette.swatchPct" min="0.03" max="0.14" step="0.0025" data-format="percent">
+      </label>
+
+      <label class="check">
+        <input type="checkbox" data-bind="palette.showHex" checked>
+        <span>Print hex codes</span>
+      </label>
+
+      <label class="swatch-field">
+        <span class="field__label">Label colour</span>
+        <input type="color" data-bind="palette.hexColor" value="#111111">
+      </label>
+
+      <div class="field">
+        <span class="field__label">Label typeface</span>
+        <div class="segmented segmented--wrap" id="hexFontPick" role="radiogroup" aria-label="Hex label typeface">
+          <button type="button" class="seg" data-font="mono" role="radio" aria-checked="true">Mono</button>
+          <button type="button" class="seg" data-font="sans" role="radio" aria-checked="false">Sans</button>
+          <button type="button" class="seg" data-font="serif" role="radio" aria-checked="false">Serif</button>
+          <button type="button" class="seg" data-font="display" role="radio" aria-checked="false">Bigola</button>
+        </div>
+      </div>
+
+      <div class="swatch-readout" id="swatchReadout" aria-live="polite"></div>
+    </section>
+
+    <!-- ── Export ──────────────────────────────────────────────────── -->
+    <section class="panel">
+      <h2 class="panel__title">Export</h2>
+
+      <div class="field">
+        <label class="field__label" for="exFormat">Format</label>
+        <select class="input" id="exFormat" data-bind="export.format">
+          <option value="image/png">PNG — lossless, keeps transparency</option>
+          <option value="image/jpeg">JPEG — smaller files</option>
+          <option value="image/webp">WebP — smaller still</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="exSize">Image width</label>
+        <select class="input" id="exSize" data-bind="export.maxWidth" data-type="number">
+          <option value="0">Original resolution</option>
+          <option value="2048">2048 px</option>
+          <option value="1440">1440 px</option>
+          <option value="1080">1080 px — social</option>
+        </select>
+      </div>
+
+      <label class="range-field" id="qualityField">
+        <span class="field__label">Quality <output data-for="export.quality"></output></span>
+        <input type="range" data-bind="export.quality" min="0.5" max="1" step="0.01" data-format="percent">
+      </label>
+
+      <p class="field__note" id="exportMeta"></p>
+    </section>
+
+    <footer class="rail__foot">
+      <p>Built with the Canvas API. No server, no upload, no analytics.</p>
+    </footer>
+  </aside>
+</main>
+
+<script type="module" src="js/main.js"></script>
 </body>
-
 </html>

@@ -9,8 +9,6 @@
 import { chromium } from 'playwright';
 
 const BASE = process.env.BASE || 'http://localhost:8080';
-/** Set when the local Chromium lives somewhere Playwright does not look. */
-const CHROME_PATH = process.env.CHROME_PATH || undefined;
 const IMAGE = process.env.IMAGE || '/home/claude/test-photo.jpg';
 const SHOTS = process.env.SHOTS || '/home/claude/shots';
 
@@ -20,12 +18,18 @@ function check(name, cond, detail = '') {
   console.log(`${cond ? ' ok ' : 'FAIL'}  ${name}${detail && !cond ? ' — ' + detail : ''}`);
 }
 
-const browser = await chromium.launch({ executablePath: CHROME_PATH });
+const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 940 } });
 
 const consoleErrors = [];
 page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + e.message));
+
+// The console message for a failed subresource carries no URL — it is just
+// "Failed to load resource: ... 404". To tell an expected miss from a real one
+// we have to record which URLs actually failed.
+const failedUrls = [];
+page.on('response', (r) => { if (r.status() >= 400) failedUrls.push(r.url()); });
 
 await page.goto(BASE, { waitUntil: 'networkidle' });
 
@@ -50,7 +54,7 @@ const geom = await page.evaluate(() => {
   return { w: c.width, h: c.height };
 });
 check('preview canvas has size', geom.w > 100 && geom.h > 100, JSON.stringify(geom));
-// Default is 4:5 portrait with a frame and a caption bar, so the canvas must
+// Default is 4:5 portrait with a frame and a palette strip, so the canvas must
 // be taller than 5/4 of its width.
 check('canvas taller than the crop ratio (frame + bar present)',
   geom.h / geom.w > 5 / 4, `${geom.w}x${geom.h} ratio ${(geom.h / geom.w).toFixed(3)}`);
@@ -63,11 +67,7 @@ check('swatches are hex codes', swatches.every((s) => /^#[0-9A-F]{6}$/.test(s)),
 
 await page.screenshot({ path: `${SHOTS}/02-loaded.png` });
 
-// ── THE CORE INVARIANT: watermark and caption render at the same size ─────
-await page.fill('#capLeft', 'Left slot');
-await page.fill('#capRight', 'Right');
-await page.waitForTimeout(150);
-
+// ── Font instrumentation ──────────────────────────────────────────────────
 const fontsMatch = await page.evaluate(async () => {
   const { renderComposition } = await import('/js/render.js');
   // Instrument the canvas context to capture every font string used.
@@ -122,21 +122,19 @@ check('turning the frame off narrows the canvas', noFrame.w < before.w,
 check('no frame means canvas width equals the crop width', noFrame.w === 1100, String(noFrame.w));
 // The palette bar is independent of the frame, so it survives and the canvas
 // stays taller than the bare crop.
-check('palette bar survives with the frame off', noFrame.h / noFrame.w > 5 / 4,
+check('palette strip survives with the frame off', noFrame.h / noFrame.w > 5 / 4,
   `ratio ${(noFrame.h / noFrame.w).toFixed(4)}`);
 
-// With the frame and BOTH bar contents off, the canvas must be exactly the
-// crop — no border, no bar, nothing added.
+// With the frame AND the palette off, the canvas must be exactly the crop —
+// no border, no strip, nothing added.
 await toggle('palette.on');
-await toggle('caption.on');
 const bare = await page.evaluate(() => {
   const c = document.getElementById('previewCanvas');
   return { w: c.width, h: c.height };
 });
-check('frame and bar off gives the bare crop',
+check('frame and palette off gives the bare crop',
   Math.abs(bare.h / bare.w - 5 / 4) < 0.01, `ratio ${(bare.h / bare.w).toFixed(4)}`);
 
-await toggle('caption.on'); // back on
 await toggle('palette.on'); // back on
 await toggle('frame.on'); // back on
 
@@ -218,116 +216,6 @@ await page.waitForTimeout(200);
 const moved = await page.evaluate(() => document.getElementById('cropRect').getBoundingClientRect().x);
 check('dragging the body moves the crop', moved > rectBox.x + 20, `${rectBox.x} -> ${moved}`);
 
-// ── Fixed-frame mode: reposition & zoom ───────────────────────────────────
-// The invariant under test throughout: the image must cover the frame at all
-// times. Any gap here is the whitespace this mode exists to make impossible.
-const boxes = () => page.evaluate(() => {
-  const f = (el) => {
-    const b = el.getBoundingClientRect();
-    return { x: b.x, y: b.y, w: b.width, h: b.height };
-  };
-  return {
-    rect: f(document.getElementById('cropRect')),
-    img: f(document.getElementById('cropImage')),
-    view: f(document.getElementById('cropper')),
-    meta: document.getElementById('cropMeta').textContent,
-  };
-});
-const covers = (b) =>
-  b.img.x <= b.rect.x + 0.5 &&
-  b.img.y <= b.rect.y + 0.5 &&
-  b.img.x + b.img.w >= b.rect.x + b.rect.w - 0.5 &&
-  b.img.y + b.img.h >= b.rect.y + b.rect.h - 0.5;
-
-check('zoom slider hidden until the box is ticked', await page.isHidden('#zoomField'));
-await page.check('#resizeMode');
-await page.waitForTimeout(250);
-check('zoom slider appears', await page.isVisible('#zoomField'));
-
-// Ticking the box keeps whatever crop the user already had, so recentre first
-// to get a known zoom of 1.00× to assert against.
-await page.click('#recenterCrop');
-await page.waitForTimeout(250);
-
-const framed = await boxes();
-check('recentring lands at the zoom-out cap', /zoom 1\.00×/.test(framed.meta), framed.meta);
-check('frame is centred in the viewport',
-  Math.abs((framed.rect.x + framed.rect.w / 2) - (framed.view.x + framed.view.w / 2)) < 1.5 &&
-  Math.abs((framed.rect.y + framed.rect.h / 2) - (framed.view.y + framed.view.h / 2)) < 1.5,
-  JSON.stringify(framed));
-check('frame keeps the 4:5 ratio', Math.abs(framed.rect.h / framed.rect.w - 5 / 4) < 0.02,
-  (framed.rect.h / framed.rect.w).toFixed(3));
-check('image covers the frame on entry', covers(framed), JSON.stringify(framed));
-check('the whole image is on screen at zoom 1',
-  framed.img.w <= framed.view.w + 1 || framed.img.h <= framed.view.h + 1,
-  JSON.stringify(framed));
-await page.screenshot({ path: `${SHOTS}/06-framed.png` });
-
-// Drag the photograph: the frame must not budge, and the image must follow.
-const vx = framed.view.x + framed.view.w / 2;
-const vy = framed.view.y + framed.view.h / 2;
-await page.mouse.move(vx, vy);
-await page.mouse.down();
-await page.mouse.move(vx + 300, vy, { steps: 12 });
-await page.mouse.up();
-await page.waitForTimeout(200);
-const panned = await boxes();
-check('the frame stays put while the image is dragged',
-  Math.abs(panned.rect.x - framed.rect.x) < 0.5 && Math.abs(panned.rect.y - framed.rect.y) < 0.5,
-  `${JSON.stringify(framed.rect)} -> ${JSON.stringify(panned.rect)}`);
-check('the image follows the pointer', panned.img.x > framed.img.x + 5,
-  `${framed.img.x} -> ${panned.img.x}`);
-check('no gap after panning hard into an edge', covers(panned), JSON.stringify(panned));
-await page.screenshot({ path: `${SHOTS}/07-framed-panned.png` });
-
-// Wheel zoom, then zoom out well past the cap.
-await page.mouse.move(vx, vy);
-await page.mouse.wheel(0, -600);
-await page.waitForTimeout(200);
-const zoomed = await boxes();
-check('the wheel zooms the image in', zoomed.img.w > panned.img.w + 5,
-  `${panned.img.w} -> ${zoomed.img.w}`);
-check('zooming does not resize the frame', Math.abs(zoomed.rect.w - framed.rect.w) < 0.5);
-check('the slider tracks a wheel zoom', Number(await page.inputValue('#zoomRange')) > 100,
-  await page.inputValue('#zoomRange'));
-await page.screenshot({ path: `${SHOTS}/08-framed-zoomed.png` });
-
-await page.mouse.wheel(0, 6000);
-await page.waitForTimeout(200);
-const capped = await boxes();
-check('zooming out stops at the covering size', /zoom 1\.00×/.test(capped.meta), capped.meta);
-check('no whitespace at the zoom-out cap', covers(capped), JSON.stringify(capped));
-
-// The slider is the pointer-free route to the same thing.
-await page.evaluate(() => {
-  const s = document.getElementById('zoomRange');
-  s.value = '250';
-  s.dispatchEvent(new Event('input', { bubbles: true }));
-});
-await page.waitForTimeout(250);
-const slid = await boxes();
-check('the slider zooms', /zoom 2\.50×/.test(slid.meta), slid.meta);
-check('the image still covers the frame after a slider zoom', covers(slid), JSON.stringify(slid));
-
-// Changing the ratio reshapes the frame without breaking the cover rule.
-await page.click('button[data-ratio="story"]');
-await page.waitForTimeout(250);
-const storyFrame = await boxes();
-check('the frame takes the new ratio', Math.abs(storyFrame.rect.h / storyFrame.rect.w - 16 / 9) < 0.03,
-  (storyFrame.rect.h / storyFrame.rect.w).toFixed(3));
-check('still covered after a ratio change', covers(storyFrame), JSON.stringify(storyFrame));
-
-await page.click('button[data-ratio="portrait45"]');
-await page.uncheck('#resizeMode');
-await page.waitForTimeout(250);
-check('corner marks come back when the box is unticked', await page.isVisible('.crop-mark--se'));
-check('zoom slider hidden again', await page.isHidden('#zoomField'));
-const restored = await boxes();
-check('the crop rect sits back over the image',
-  restored.rect.x >= restored.img.x - 1 &&
-  restored.rect.x + restored.rect.w <= restored.img.x + restored.img.w + 1,
-  JSON.stringify(restored));
-
 await page.click('button[data-view="preview"]');
 await page.waitForTimeout(300);
 
@@ -348,18 +236,6 @@ await page.evaluate(() => {
   s.dispatchEvent(new Event('input', { bubbles: true }));
 });
 await page.waitForTimeout(300);
-
-// ── Long text warning ─────────────────────────────────────────────────────
-await page.fill('#capCenter', 'A very long middle caption that will certainly collide with both sides');
-await page.fill('#capLeft', 'Also quite a long left caption here');
-await page.waitForTimeout(300);
-check('collision warning shown', await page.isVisible('#warnings'),
-  await page.textContent('#warnings'));
-
-await page.fill('#capCenter', 'Lisbon, 2026');
-await page.fill('#capLeft', 'Leica M6 · 35mm');
-await page.waitForTimeout(250);
-check('warning clears when text fits', await page.isHidden('#warnings'));
 
 // ── Export ────────────────────────────────────────────────────────────────
 const download = await Promise.all([
@@ -386,7 +262,20 @@ check('no horizontal overflow on mobile', overflowX <= 1, `overflow ${overflowX}
 await page.screenshot({ path: `${SHOTS}/07-mobile.png`, fullPage: false });
 
 // ── Console hygiene ───────────────────────────────────────────────────────
-const realErrors = consoleErrors.filter((e) => !/fonts\.(googleapis|gstatic)\.com/.test(e));
+// The repository ships without the .otf (licensing), so a 404 for exactly that
+// file is the documented state. Anything else failing is a real fault.
+const unexpectedFailures = failedUrls.filter((u) => !/assets\/fonts\//.test(u));
+check('no unexpected failed requests', unexpectedFailures.length === 0,
+  unexpectedFailures.slice(0, 3).join(' | '));
+
+const fontMissing = failedUrls.some((u) => /assets\/fonts\//.test(u));
+const realErrors = consoleErrors.filter((e) => {
+  if (/fonts\.(googleapis|gstatic)\.com/.test(e)) return false;
+  // Generic subresource failure, and the only thing that failed was the font.
+  if (fontMissing && unexpectedFailures.length === 0 &&
+      /Failed to load resource/.test(e)) return false;
+  return true;
+});
 check('no console errors', realErrors.length === 0, realErrors.slice(0, 4).join(' | '));
 
 await browser.close();
