@@ -13,8 +13,10 @@ import {
   largestFit,
   refitToRatio,
   clampToBounds,
+  moveRect,
   resizeFromHandle,
   resolveRatio,
+  fitsRotated,
 } from '../js/lib/crop-geometry.js';
 import {
   resolveWatermarkSize, resolveHexSize, metricOf, splitLines, measureBlock,
@@ -136,6 +138,56 @@ group('crop geometry');
   const refit = refitToRatio({ x: 100, y: 100, w: 400, h: 400 }, 1000, 1000, 9 / 16);
   close('refit adopts new ratio', refit.w / refit.h, 9 / 16, 1e-9);
   ok('refit stays in bounds', refit.x >= 0 && refit.y + refit.h <= 1000.001);
+}
+
+// ----------------------------------------------------------- straighten ---
+group('straighten');
+{
+  const W = 3000, H = 2000;
+  for (const angle of [-30, -4.5, 2, 12, 45]) {
+    const r = largestFit(W, H, 4 / 5, angle);
+    close(`largestFit keeps ratio at ${angle}°`, r.w / r.h, 4 / 5, 1e-9);
+    ok(`largestFit fits at ${angle}°`, fitsRotated(r, W, H, angle), JSON.stringify(r));
+    // Maximal: 1% bigger must poke a corner out.
+    const grown = { x: r.x - r.w * 0.005, y: r.y - r.h * 0.005, w: r.w * 1.01, h: r.h * 1.01 };
+    ok(`largestFit is maximal at ${angle}°`, !fitsRotated(grown, W, H, angle));
+  }
+}
+{
+  // Known case: a square rotated 45° holds an upright square of side W/√2.
+  const r = largestFit(1000, 1000, 1, 45);
+  close('45° square inscribes at side/√2', r.w, (1000 - 2) / Math.SQRT2, 1e-6);
+}
+{
+  const W = 3000, H = 2000, angle = 8;
+  const start = largestFit(W, H, 1, angle);
+  const small = { x: start.x + 100, y: start.y + 100, w: 400, h: 400 };
+
+  const moved = moveRect(small, 5000, 3000, W, H, angle);
+  ok('move clamps inside rotated image', fitsRotated(moved, W, H, angle), JSON.stringify(moved));
+  close('move keeps size', moved.w, 400);
+
+  const pushed = clampToBounds({ x: -900, y: -900, w: 2900, h: 1900 }, W, H, angle);
+  ok('clamp shrinks oversize rect to fit', fitsRotated(pushed, W, H, angle), JSON.stringify(pushed));
+  close('clamp keeps ratio', pushed.w / pushed.h, 2900 / 1900, 1e-9);
+
+  const locked = resizeFromHandle(small, 'se', 99999, 99999, 4 / 5, W, H, angle);
+  close('rotated resize keeps ratio', locked.w / locked.h, 4 / 5, 1e-9);
+  ok('rotated resize fits', fitsRotated(locked, W, H, angle), JSON.stringify(locked));
+  ok('rotated resize holds anchor', locked.x === small.x && locked.y === small.y);
+  ok('rotated resize reaches the edge', !fitsRotated(
+    { ...locked, w: locked.w * 1.01, h: locked.h * 1.01 }, W, H, angle));
+
+  const free = resizeFromHandle(small, 'nw', -99999, small.y - 50, null, W, H, angle);
+  ok('rotated free resize fits', fitsRotated(free, W, H, angle), JSON.stringify(free));
+  close('rotated free resize holds SE corner', free.x + free.w, small.x + small.w, 1e-6);
+}
+{
+  // Angle 0 must be the exact unrotated behaviour, not a near-miss of it.
+  const r = { x: -50, y: 20, w: 100, h: 100 };
+  const a = clampToBounds(r, 500, 500);
+  const b = clampToBounds(r, 500, 500, 0);
+  ok('angle 0 is the level path', a.x === b.x && a.y === b.y && a.w === b.w);
 }
 {
   // Orientation is absolute, not an inversion: "portrait" always yields the

@@ -67,6 +67,7 @@ const el = {
   hexFontPick: document.getElementById('hexFontPick'),
   fontNote: document.getElementById('fontNote'),
   recenterCrop: document.getElementById('recenterCrop'),
+  edgeLink: document.getElementById('edgeLink'),
 
   swatchReadout: document.getElementById('swatchReadout'),
   sourceMeta: document.getElementById('sourceMeta'),
@@ -108,12 +109,40 @@ let fontsReady = false;
 /** Guards scheduleRender so a burst of slider events collapses into one frame. */
 let renderQueued = false;
 
+/**
+ * The crop as it was before the current run of straighten adjustments.
+ *
+ * Tilting shrinks the crop to keep it inside the rotated photo. Refitting
+ * from this snapshot rather than the live crop means tilting back towards
+ * level grows it again, instead of every tick ratcheting it smaller. Cleared
+ * whenever the crop is changed any other way.
+ */
+let straightenBase = null;
+
 /* ══ Helpers ═════════════════════════════════════════════════════════════ */
 
 /** The aspect ratio currently in force, or null when the crop is unlocked. */
 function currentRatio() {
   const { ratioId, orientation } = store.get().crop;
   return resolveRatio(ratioId, orientation);
+}
+
+/** Straighten angle in degrees; 0 when level. */
+function currentAngle() {
+  return store.get().crop.angle || 0;
+}
+
+/**
+ * The largest crop the current ratio and angle allow, centred. An unlocked
+ * crop is the whole frame when level; once straightened the whole frame
+ * would show empty corners, so it becomes the largest rect of the image's
+ * own shape instead.
+ */
+function fullCrop(iw, ih) {
+  const ratio = currentRatio();
+  const angle = currentAngle();
+  if (ratio) return largestFit(iw, ih, ratio, angle);
+  return angle ? largestFit(iw, ih, iw / ih, angle) : { x: 0, y: 0, w: iw, h: ih };
 }
 
 /** Read used by the cropper to avoid stale closures mid-gesture. */
@@ -123,6 +152,7 @@ function readCropContext() {
     imgW: session.image?.naturalWidth || 0,
     imgH: session.image?.naturalHeight || 0,
     ratio: currentRatio(),
+    angle: currentAngle(),
   };
 }
 
@@ -147,14 +177,15 @@ function refreshPalette() {
   if (!session.image || !session.crop) return;
 
   const { count } = store.get().palette;
+  const angle = currentAngle();
   const c = session.crop;
   const key = [
-    Math.round(c.x), Math.round(c.y), Math.round(c.w), Math.round(c.h), count,
+    Math.round(c.x), Math.round(c.y), Math.round(c.w), Math.round(c.h), count, angle,
   ].join(':');
 
   if (key === session.paletteKey) return;
 
-  const sample = cropToCanvas(session.image, c, Math.min(PALETTE_SAMPLE_WIDTH, c.w));
+  const sample = cropToCanvas(session.image, c, Math.min(PALETTE_SAMPLE_WIDTH, c.w), angle);
   session.palette = extractPaletteFromCanvas(sample, count);
   session.paletteKey = key;
 
@@ -207,9 +238,11 @@ function updateMeta(previewCanvas) {
   const crop = session.crop;
   const opts = store.get();
 
+  const angle = currentAngle();
   el.cropMeta.textContent =
     `crop ${Math.round(crop.w)} × ${Math.round(crop.h)} px  ·  ` +
-    `${(crop.w / crop.h).toFixed(3)}:1`;
+    `${(crop.w / crop.h).toFixed(3)}:1` +
+    (angle ? `  ·  ${angle > 0 ? '+' : ''}${angle.toFixed(1)}°` : '');
 
   // Scale the preview's finished size up to whatever the export will use.
   const exportCropW = opts.export.maxWidth
@@ -264,12 +297,14 @@ async function loadFile(file) {
   session.fileName = file.name.replace(/\.[^.]+$/, '') || 'image';
   session.paletteKey = '';
 
+  // A straighten angle belongs to the photo it levelled, not the next one.
+  store.update((draft) => { draft.crop.angle = 0; });
+  straightenBase = null;
+  controls.refresh();
+
   // Start with the largest crop the current ratio allows, centred. An unlocked
   // crop starts as the whole frame.
-  const ratio = currentRatio();
-  session.crop = ratio
-    ? largestFit(image.naturalWidth, image.naturalHeight, ratio)
-    : { x: 0, y: 0, w: image.naturalWidth, h: image.naturalHeight };
+  session.crop = fullCrop(image.naturalWidth, image.naturalHeight);
 
   el.cropImage.src = url;
   el.cropImage.alt = `Source photograph: ${file.name}`;
@@ -313,6 +348,7 @@ const cropper = createCropper({
   read: readCropContext,
   onChange(next) {
     session.crop = next;
+    straightenBase = null;
     cropper.sync();
     scheduleRender();
   },
@@ -324,6 +360,62 @@ const controls = bindControls({
   root: el.rail,
   store,
   onChange: scheduleRender,
+});
+
+/* ── Edge: padding and radius, optionally linked ───────────────────────────
+   The generic binder writes whichever slider moved; when the pair is linked
+   this then copies that value to its partner. Registered after bindControls,
+   so the store already holds the new value when it runs.                     */
+
+function syncEdgeLink() {
+  el.edgeLink.setAttribute('aria-pressed', String(store.get().edge.linked));
+}
+
+for (const [from, to] of [['paddingPct', 'radiusPct'], ['radiusPct', 'paddingPct']]) {
+  el.rail.querySelector(`[data-bind="edge.${from}"]`).addEventListener('input', () => {
+    if (!store.get().edge.linked) return;
+    store.update((draft) => { draft.edge[to] = draft.edge[from]; });
+    controls.refresh();
+  });
+}
+
+el.edgeLink.addEventListener('click', () => {
+  store.update((draft) => {
+    draft.edge.linked = !draft.edge.linked;
+    // Re-linking snaps the radius to the padding, so the pair is equal again.
+    if (draft.edge.linked) draft.edge.radiusPct = draft.edge.paddingPct;
+  });
+  syncEdgeLink();
+  controls.refresh();
+  scheduleRender();
+});
+
+syncEdgeLink();
+
+/* ── Straighten ────────────────────────────────────────────────────────────
+   The generic binder stores the angle; this then refits the crop inside the
+   rotated photo. Same ordering trick as the edge link above.                 */
+
+const straightenInput = el.rail.querySelector('[data-bind="crop.angle"]');
+
+function applyStraighten() {
+  if (!session.image || !session.crop) return;
+  const { naturalWidth: iw, naturalHeight: ih } = session.image;
+  if (!straightenBase) straightenBase = { ...session.crop };
+  // Size is kept where it fits and only shrinks where the tilted corners
+  // would otherwise be exposed.
+  session.crop = clampToBounds(straightenBase, iw, ih, currentAngle());
+  cropper.sync();
+}
+
+straightenInput.addEventListener('input', applyStraighten);
+
+// Double-click returns to level — the usual reset gesture for a slider.
+straightenInput.addEventListener('dblclick', () => {
+  store.update((draft) => { draft.crop.angle = 0; });
+  controls.refresh();
+  applyStraighten();
+  scheduleRender();
 });
 
 const ratioChips = bindRatioChips({
@@ -417,10 +509,13 @@ function applyRatioToCrop() {
   const { naturalWidth: iw, naturalHeight: ih } = session.image;
   const ratio = currentRatio();
 
-  session.crop = ratio
-    ? refitToRatio(session.crop, iw, ih, ratio)
-    : clampToBounds(session.crop, iw, ih);
+  const angle = currentAngle();
 
+  session.crop = ratio
+    ? refitToRatio(session.crop, iw, ih, ratio, angle)
+    : clampToBounds(session.crop, iw, ih, angle);
+
+  straightenBase = null;
   session.paletteKey = ''; // crop moved, palette is stale
   cropper.sync();
 }
@@ -430,8 +525,8 @@ function applyRatioToCrop() {
 el.recenterCrop.addEventListener('click', () => {
   if (!session.image) return;
   const { naturalWidth: iw, naturalHeight: ih } = session.image;
-  const ratio = currentRatio();
-  session.crop = ratio ? largestFit(iw, ih, ratio) : { x: 0, y: 0, w: iw, h: ih };
+  session.crop = fullCrop(iw, ih);
+  straightenBase = null;
   session.paletteKey = '';
   cropper.sync();
   scheduleRender();
@@ -443,6 +538,9 @@ el.resetAll.addEventListener('click', () => {
   ratioChips.refresh();
   orientationGroup.refresh();
   buttonGroups.forEach((g) => g.refresh());
+  syncEdgeLink();
+  // The angle is back to level, so undo any shrinking the tilt forced.
+  if (straightenBase && session.crop) session.crop = straightenBase;
   applyRatioToCrop();
   session.paletteKey = '';
   scheduleRender();

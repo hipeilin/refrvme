@@ -46,11 +46,15 @@ function syncConditionalFields(root, state) {
 
   const lineHeight = root.querySelector('#lineHeightField');
   if (lineHeight) lineHeight.hidden = splitLines(composeWatermarkText(state.watermark)).length < 2;
+
+  const glow = root.querySelector('#edgeGlowFields');
+  if (glow) glow.hidden = !state.edge.glowOn;
 }
 
 /** Format a value for its readout. */
 function formatValue(value, format) {
   if (format === 'percent') return `${(value * 100).toFixed(1)}%`;
+  if (format === 'degrees') return `${value > 0 ? '+' : ''}${value.toFixed(1)}°`;
   return String(value);
 }
 
@@ -120,7 +124,7 @@ export function bindControls({ root, store, onChange }) {
       if (el.type === 'checkbox' && path.endsWith('.on')) {
         el.closest('.panel')?.classList.toggle('is-muted', !el.checked);
       }
-      if (path === 'export.format' || path.startsWith('watermark.')) {
+      if (path === 'export.format' || path.startsWith('watermark.') || path === 'edge.glowOn') {
         syncConditionalFields(root, store.get());
       }
 

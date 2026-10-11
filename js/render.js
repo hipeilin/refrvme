@@ -5,6 +5,7 @@
  *
  *   1. crop      — resample the source region to the output size
  *   2. watermark — burned into the cropped image, so it scales with it
+ *   2b. edge     — pad, round and feather the image, add a halation glow
  *   3. frame     — fill, then clip the image to rounded corners
  *   4. palette   — swatch circles + hex labels
  *
@@ -87,9 +88,18 @@ function drawTextBlock(ctx, lines, x, y, anchor, lineStep, firstLineLetterSpacin
   // to be re-armed before every measurement or draw that should use it.
   const armSpacing = (i) => { ctx.letterSpacing = `${i === 0 ? firstLineLetterSpacingPx : 0}px`; };
 
+  // The canvas adds the spacing after EVERY glyph, the last one included, so
+  // a tracked line carries an invisible trailing gap that textAlign counts as
+  // width. Right-aligned, that pulls the visible ink short of the edge the
+  // other lines end on; centred, it shifts the line off-centre by half a gap.
+  // Push the tracked line back by the gap so its ink lines up.
+  const trailing = ctx.textAlign === 'right' || ctx.textAlign === 'end' ? 1
+    : ctx.textAlign === 'center' ? 0.5 : 0;
+  const xFor = (i) => x + (i === 0 ? firstLineLetterSpacingPx * trailing : 0);
+
   if (lines.length === 1) {
     armSpacing(0);
-    drawText(ctx, lines[0], x, y, anchor);
+    drawText(ctx, lines[0], xFor(0), y, anchor);
     return;
   }
 
@@ -114,7 +124,7 @@ function drawTextBlock(ctx, lines, x, y, anchor, lineStep, firstLineLetterSpacin
   lines.forEach((line, i) => {
     if (!line) return; // interior blank line: consumes space, draws nothing
     armSpacing(i);
-    ctx.fillText(line, x, firstBaseline + i * lineStep);
+    ctx.fillText(line, xFor(i), firstBaseline + i * lineStep);
   });
 }
 
@@ -123,8 +133,13 @@ function drawTextBlock(ctx, lines, x, y, anchor, lineStep, firstLineLetterSpacin
  * @param {CanvasRenderingContext2D} ctx
  */
 function roundedPath(ctx, x, y, w, h, r) {
-  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath();
+  traceRounded(ctx, x, y, w, h, r);
+}
+
+/** Add a rounded rect as a subpath of the current path, without resetting it. */
+function traceRounded(ctx, x, y, w, h, r) {
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
   if (typeof ctx.roundRect === 'function') {
     ctx.roundRect(x, y, w, h, radius);
     return;
@@ -138,6 +153,100 @@ function roundedPath(ctx, x, y, w, h, r) {
 }
 
 /**
+ * Run `draw` with a Gaussian blur of `px` applied to whatever it paints.
+ *
+ * `ctx.filter` is the direct route but older Safari lacks it. The fallback
+ * paints the shape far off-canvas and lets its shadow — which every browser
+ * blurs — land back in place. `draw` receives the x offset to trace at.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} px blur radius (standard deviation), in px
+ * @param {string} color the colour `draw` paints with; the shadow needs it too
+ * @param {(dx: number) => void} draw
+ */
+function drawBlurred(ctx, px, color, draw) {
+  if (px <= 0) {
+    draw(0);
+    return;
+  }
+  ctx.save();
+  if ('filter' in ctx) {
+    ctx.filter = `blur(${px}px)`;
+    draw(0);
+  } else {
+    const off = ctx.canvas.width + ctx.canvas.height + px * 8;
+    ctx.shadowColor = color;
+    // shadowBlur is twice the standard deviation, unlike filter's blur().
+    ctx.shadowBlur = px * 2;
+    ctx.shadowOffsetX = off;
+    draw(-off);
+  }
+  ctx.restore();
+}
+
+/**
+ * Pad the image, round its corners and feather the boundary, then lay a
+ * halation glow along that boundary.
+ *
+ * Runs on the watermarked crop, before layout, so to everything downstream
+ * the padded result simply *is* the image: the frame mounts it, the palette
+ * strip spans it.
+ *
+ * @param {HTMLCanvasElement} src watermarked crop
+ * @param {number} metric of the bare crop
+ * @param {object} edge `opts.edge` (see state.js)
+ * @returns {HTMLCanvasElement}
+ */
+function applyEdge(src, metric, edge) {
+  const w = src.width;
+  const h = src.height;
+  const pad = Math.round(metric * edge.paddingPct);
+  const radius = Math.min(metric * edge.radiusPct, Math.min(w, h) / 2);
+
+  const out = document.createElement('canvas');
+  out.width = w + pad * 2;
+  out.height = h + pad * 2;
+  const ctx = out.getContext('2d');
+
+  // Solid fill first, so the feathered fill drawn over the image below has
+  // opaque colour behind it rather than a translucent ring outside the image.
+  ctx.fillStyle = edge.color;
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(src, pad, pad);
+
+  // Everything outside the rounded image, blurred so it bleeds softly over
+  // the image edge. The outer rect overshoots the canvas so the blur never
+  // fades the fill at the canvas's own border.
+  const blur = metric * edge.blurPct;
+  const bleed = Math.ceil(blur * 4) + 2;
+  ctx.fillStyle = edge.color;
+  drawBlurred(ctx, blur, edge.color, (dx) => {
+    ctx.beginPath();
+    ctx.rect(-bleed + dx, -bleed, out.width + bleed * 2, out.height + bleed * 2);
+    traceRounded(ctx, pad + dx, pad, w, h, radius);
+    ctx.fill('evenodd');
+  });
+
+  // Halation: a blurred stroke along the edge, screened on so it can only
+  // lighten — it glows into the image and out across the fill.
+  if (edge.glowOn && edge.glowStrength > 0) {
+    const glow = metric * edge.glowBlurPct;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = edge.glowStrength;
+    ctx.strokeStyle = edge.glowColor;
+    ctx.lineWidth = Math.max(1, glow * 0.6, metric * 0.002);
+    drawBlurred(ctx, glow, edge.glowColor, (dx) => {
+      roundedPath(ctx, pad + dx, pad, w, h, radius);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  return out;
+}
+
+/**
  * Cut the cropped region out of the source image at the requested size.
  *
  * The nine-argument drawImage does the crop and the resample in one step, so
@@ -146,9 +255,11 @@ function roundedPath(ctx, x, y, w, h, r) {
  * @param {HTMLImageElement|HTMLCanvasElement|ImageBitmap} image
  * @param {{x:number,y:number,w:number,h:number}} crop in source pixels
  * @param {number} outputWidth
+ * @param {number} [angle] straighten angle in degrees, clockwise. The crop
+ *        rect is in the straightened space described in crop-geometry.js.
  * @returns {HTMLCanvasElement}
  */
-export function cropToCanvas(image, crop, outputWidth) {
+export function cropToCanvas(image, crop, outputWidth, angle = 0) {
   const cropW = Math.max(1, Math.round(outputWidth));
   const cropH = Math.max(1, Math.round((outputWidth * crop.h) / crop.w));
 
@@ -159,7 +270,24 @@ export function cropToCanvas(image, crop, outputWidth) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(image, crop.x, crop.y, crop.w, crop.h, 0, 0, cropW, cropH);
+
+  if (!angle) {
+    ctx.drawImage(image, crop.x, crop.y, crop.w, crop.h, 0, 0, cropW, cropH);
+    return canvas;
+  }
+
+  // Map crop space onto the output, then rotate the whole source about its
+  // centre. Everything outside the canvas is discarded by the draw, so this
+  // costs about the same as the nine-argument form.
+  const iw = image.naturalWidth || image.width;
+  const ih = image.naturalHeight || image.height;
+  ctx.scale(cropW / crop.w, cropH / crop.h);
+  ctx.translate(-crop.x + iw / 2, -crop.y + ih / 2);
+  ctx.rotate((angle * Math.PI) / 180);
+  ctx.drawImage(image, -iw / 2, -ih / 2);
+  // The caller draws the watermark on this same context. Left armed, the
+  // transform would tilt it and fling it toward the middle of the image.
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 
   return canvas;
 }
@@ -209,7 +337,7 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
   const warnings = [];
 
   // ---- 1. Crop ------------------------------------------------------------
-  const imgCanvas = cropToCanvas(image, crop, outputWidth);
+  const imgCanvas = cropToCanvas(image, crop, outputWidth, opts.crop.angle);
   const cropW = imgCanvas.width;
   const cropH = imgCanvas.height;
   const metric = metricOf(cropW, cropH);
@@ -218,7 +346,13 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
   const swatches = opts.palette.on ? palette.slice(0, opts.palette.count) : [];
   const hexStrings = opts.palette.showHex ? swatches.map(rgbToHex) : [];
 
-  const { cell } = swatchMetrics(cropW, metric, opts.palette.count, opts.palette.swatchPct);
+  // The edge pads the image, and the palette strip spans the padded width, so
+  // the swatch columns have to be sized from that width, not the bare crop's.
+  // Same rounding as applyEdge so the two cannot drift by a pixel.
+  const edgePad = opts.edge?.on ? Math.round(metric * opts.edge.paddingPct) : 0;
+  const imgW = cropW + edgePad * 2;
+
+  const { cell } = swatchMetrics(imgW, metric, opts.palette.count, opts.palette.swatchPct);
   const margin = metric * opts.watermark.marginPct;
 
   const mctx = measurer();
@@ -291,6 +425,9 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
     ictx.globalAlpha = 1;
   }
 
+  // ---- 3b. Edge: padding, rounded corners, feather, halation ---------------
+  const imgOut = opts.edge?.on ? applyEdge(imgCanvas, metric, opts.edge) : imgCanvas;
+
   // ---- 4. Layout ----------------------------------------------------------
   const layoutOpts = {
     frameOn: opts.frame.on,
@@ -301,7 +438,9 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
     swatchCount: Math.max(1, swatches.length || opts.palette.count),
     swatchPct: opts.palette.swatchPct,
   };
-  const L = computeLayout({ cropW, cropH, opts: layoutOpts, hexPx });
+  const L = computeLayout({
+    cropW: imgOut.width, cropH: imgOut.height, opts: layoutOpts, hexPx, metric,
+  });
 
   // ---- 5. Compose ---------------------------------------------------------
   const out = document.createElement('canvas');
@@ -323,7 +462,7 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
   ctx.save();
   roundedPath(ctx, L.imgX, L.imgY, L.imgW, L.imgH, L.radius);
   ctx.clip();
-  ctx.drawImage(imgCanvas, L.imgX, L.imgY);
+  ctx.drawImage(imgOut, L.imgX, L.imgY);
   ctx.restore();
 
   // ---- 6. Palette row -----------------------------------------------------

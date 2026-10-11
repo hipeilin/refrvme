@@ -112,6 +112,12 @@
         </div>
       </div>
 
+      <label class="range-field">
+        <span class="field__label">Straighten <output data-for="crop.angle"></output></span>
+        <input type="range" data-bind="crop.angle" min="-45" max="45" step="0.1" data-format="degrees">
+      </label>
+      <p class="field__note">The crop shrinks as needed to keep tilted corners out. Double-click the slider to level.</p>
+
       <div class="field field--row">
         <button type="button" class="btn btn--wide" id="recenterCrop">Recentre crop</button>
       </div>
@@ -211,6 +217,74 @@
         </div>
         <p class="field__note" id="fontNote" hidden></p>
         <p class="field__note">Relative size 1 is the unadjusted default. Different typefaces at one pixel size rarely look equal, so nudge it to balance the mark against the image by eye.</p>
+      </div>
+    </section>
+
+    <!-- ── Edge ────────────────────────────────────────────────────── -->
+    <section class="panel">
+      <h2 class="panel__title">
+        Edge
+        <label class="switch">
+          <input type="checkbox" data-bind="edge.on">
+          <span class="switch__track" aria-hidden="true"></span>
+          <span class="visually-hidden">Show rounded edge</span>
+        </label>
+      </h2>
+      <p class="panel__note">Rounds the image's corners and pads it with a soft-edged fill, inside any frame.</p>
+
+      <div class="linked-pair">
+        <div class="linked-pair__ranges">
+          <label class="range-field">
+            <span class="field__label">Padding <output data-for="edge.paddingPct"></output></span>
+            <input type="range" data-bind="edge.paddingPct" min="0" max="0.12" step="0.0025" data-format="percent">
+          </label>
+          <label class="range-field">
+            <span class="field__label">Corner radius <output data-for="edge.radiusPct"></output></span>
+            <input type="range" data-bind="edge.radiusPct" min="0" max="0.12" step="0.0025" data-format="percent">
+          </label>
+        </div>
+        <button type="button" class="link-toggle" id="edgeLink" aria-pressed="false"
+                title="Link padding and corner radius">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none"
+               stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <path class="link-toggle__on" d="M6.5 9.5l3-3M7 4.5l1-1a2.8 2.8 0 0 1 4 4l-1 1M9 11.5l-1 1a2.8 2.8 0 0 1-4-4l1-1"/>
+            <path class="link-toggle__off" d="M7 4.5l1-1a2.8 2.8 0 0 1 4 4l-1 1M9 11.5l-1 1a2.8 2.8 0 0 1-4-4l1-1M3 3l1.5 1.5M13 13l-1.5-1.5"/>
+          </svg>
+          <span class="visually-hidden">Link padding and corner radius</span>
+        </button>
+      </div>
+
+      <div class="field field--split">
+        <label class="swatch-field">
+          <span class="field__label">Fill</span>
+          <input type="color" data-bind="edge.color" value="#000000">
+        </label>
+        <label class="range-field">
+          <span class="field__label">Edge softness <output data-for="edge.blurPct"></output></span>
+          <input type="range" data-bind="edge.blurPct" min="0" max="0.03" step="0.0005" data-format="percent">
+        </label>
+      </div>
+
+      <label class="check">
+        <input type="checkbox" data-bind="edge.glowOn">
+        <span>Halation glow</span>
+      </label>
+
+      <div id="edgeGlowFields">
+        <div class="field field--split">
+          <label class="swatch-field">
+            <span class="field__label">Glow</span>
+            <input type="color" data-bind="edge.glowColor" value="#FF7A2E">
+          </label>
+          <label class="range-field">
+            <span class="field__label">Strength <output data-for="edge.glowStrength"></output></span>
+            <input type="range" data-bind="edge.glowStrength" min="0" max="1" step="0.05" data-format="percent">
+          </label>
+        </div>
+        <label class="range-field">
+          <span class="field__label">Glow blur <output data-for="edge.glowBlurPct"></output></span>
+          <input type="range" data-bind="edge.glowBlurPct" min="0" max="0.08" step="0.001" data-format="percent">
+        </label>
       </div>
     </section>
 

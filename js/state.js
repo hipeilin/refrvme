@@ -16,6 +16,11 @@ export function defaultOptions() {
       orientation: 'portrait', // 'portrait' | 'landscape'
       /** Ruler overlay in the crop view. 'off' | 'thirds' | 'golden' | 'center'. */
       guide: 'thirds',
+      /**
+       * Straighten angle in degrees, clockwise. The crop rect is kept inside
+       * the rotated image — see the "Straighten" section of crop-geometry.js.
+       */
+      angle: 0,
     },
 
     watermark: {
@@ -50,6 +55,31 @@ export function defaultOptions() {
       position: 'bc',
       /** Inset from the image edge, as a fraction of metric. */
       marginPct: 0.05,
+    },
+
+    /**
+     * Rounded, padded edge drawn around the image itself, inside any frame —
+     * the look of a film scan's gate edge. Applied before the frame, so the
+     * frame mounts the padded image as one piece.
+     */
+    edge: {
+      on: false,
+      /** Padding around the image, as a fraction of metric. */
+      paddingPct: 0.035,
+      /** Image corner radius, as a fraction of metric. */
+      radiusPct: 0.08,
+      /** When true, padding and radius move together. */
+      linked: false,
+      color: '#000000',
+      /** Feather between the image and the fill, as a fraction of metric. */
+      blurPct: 0.004,
+      /** Halation: a soft coloured glow along the image's edge. */
+      glowOn: true,
+      glowColor: '#FF7A2E',
+      /** Glow spread, as a fraction of metric. */
+      glowBlurPct: 0.006,
+      /** Glow opacity, 0–1. */
+      glowStrength: 0.4,
     },
 
     frame: {

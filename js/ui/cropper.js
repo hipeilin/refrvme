@@ -24,7 +24,7 @@ import {
  * @param {HTMLElement} config.root the positioned wrapper around the image
  * @param {HTMLImageElement} config.img the displayed source image
  * @param {HTMLElement} config.rectEl the crop rectangle element
- * @param {() => {crop: object, imgW: number, imgH: number, ratio: number|null}} config.read
+ * @param {() => {crop: object, imgW: number, imgH: number, ratio: number|null, angle: number}} config.read
  *        supplies current state at gesture time (avoids stale closures)
  * @param {(crop: object) => void} config.onChange
  */
@@ -56,6 +56,31 @@ export function createCropper({ root, img, rectEl, read, onChange }) {
   let drag = null;
 
   /**
+   * The image's UNROTATED box in client pixels.
+   *
+   * When straightened, the image is turned with a CSS transform, and
+   * getBoundingClientRect then returns the box around the rotated shape. The
+   * crop space is the unrotated box with the same centre, so recover it: a
+   * w×h box turned by θ has a bounding width of w·|cos θ| + h·|sin θ|. The
+   * integer offsetWidth would also do, but drifts by up to a pixel.
+   */
+  function imageBox() {
+    const b = img.getBoundingClientRect();
+    const { imgW, imgH, angle } = read();
+    if (!angle || !imgW) return b;
+    const t = (angle * Math.PI) / 180;
+    const aspect = imgH / imgW;
+    const width = b.width / (Math.abs(Math.cos(t)) + aspect * Math.abs(Math.sin(t)));
+    const height = width * aspect;
+    return {
+      left: b.left + (b.width - width) / 2,
+      top: b.top + (b.height - height) / 2,
+      width,
+      height,
+    };
+  }
+
+  /**
    * Convert a client point into source-image pixels.
    *
    * The image is displayed at whatever size the layout gives it, so the scale
@@ -64,7 +89,7 @@ export function createCropper({ root, img, rectEl, read, onChange }) {
    * window mid-session.
    */
   function toSource(clientX, clientY) {
-    const box = img.getBoundingClientRect();
+    const box = imageBox();
     const { imgW, imgH } = read();
     // Guard against a zero-width box during layout thrash.
     const scaleX = box.width > 0 ? imgW / box.width : 1;
@@ -108,13 +133,13 @@ export function createCropper({ root, img, rectEl, read, onChange }) {
     if (!drag) return;
     event.preventDefault();
 
-    const { imgW, imgH, ratio } = read();
+    const { imgW, imgH, ratio, angle } = read();
     const point = toSource(event.clientX, event.clientY);
 
     const next =
       drag.mode === 'move'
-        ? moveRect(drag.startRect, point.x - drag.startX, point.y - drag.startY, imgW, imgH)
-        : resizeFromHandle(drag.startRect, drag.handle, point.x, point.y, ratio, imgW, imgH);
+        ? moveRect(drag.startRect, point.x - drag.startX, point.y - drag.startY, imgW, imgH, angle)
+        : resizeFromHandle(drag.startRect, drag.handle, point.x, point.y, ratio, imgW, imgH, angle);
 
     onChange(next);
   }
@@ -136,7 +161,7 @@ export function createCropper({ root, img, rectEl, read, onChange }) {
    * deriving height from width, the same rule the corner drag uses.
    */
   function onKeyDown(event) {
-    const { crop, imgW, imgH, ratio } = read();
+    const { crop, imgW, imgH, ratio, angle } = read();
     if (!crop) return;
 
     // Step as a fraction of the image, so a nudge feels the same on a small
@@ -145,20 +170,20 @@ export function createCropper({ root, img, rectEl, read, onChange }) {
     let next = null;
 
     switch (event.key) {
-      case 'ArrowLeft': next = moveRect(crop, -delta, 0, imgW, imgH); break;
-      case 'ArrowRight': next = moveRect(crop, delta, 0, imgW, imgH); break;
-      case 'ArrowUp': next = moveRect(crop, 0, -delta, imgW, imgH); break;
-      case 'ArrowDown': next = moveRect(crop, 0, delta, imgW, imgH); break;
+      case 'ArrowLeft': next = moveRect(crop, -delta, 0, imgW, imgH, angle); break;
+      case 'ArrowRight': next = moveRect(crop, delta, 0, imgW, imgH, angle); break;
+      case 'ArrowUp': next = moveRect(crop, 0, -delta, imgW, imgH, angle); break;
+      case 'ArrowDown': next = moveRect(crop, 0, delta, imgW, imgH, angle); break;
       case '+': case '=': {
         const w = crop.w * 1.05;
         const h = ratio ? w / ratio : crop.h * 1.05;
-        next = clampToBounds({ x: crop.x - (w - crop.w) / 2, y: crop.y - (h - crop.h) / 2, w, h }, imgW, imgH);
+        next = clampToBounds({ x: crop.x - (w - crop.w) / 2, y: crop.y - (h - crop.h) / 2, w, h }, imgW, imgH, angle);
         break;
       }
       case '-': case '_': {
         const w = crop.w * 0.95;
         const h = ratio ? w / ratio : crop.h * 0.95;
-        next = clampToBounds({ x: crop.x + (crop.w - w) / 2, y: crop.y + (crop.h - h) / 2, w, h }, imgW, imgH);
+        next = clampToBounds({ x: crop.x + (crop.w - w) / 2, y: crop.y + (crop.h - h) / 2, w, h }, imgW, imgH, angle);
         break;
       }
       default: return;
@@ -183,14 +208,16 @@ export function createCropper({ root, img, rectEl, read, onChange }) {
      * up the latter.
      */
     sync() {
-      const { crop, imgW, imgH } = read();
+      const { crop, imgW, imgH, angle } = read();
+      // The photo turns behind a crop rect that stays upright.
+      img.style.transform = angle ? `rotate(${angle}deg)` : '';
       if (!crop || !imgW) {
         rectEl.hidden = true;
         return;
       }
       rectEl.hidden = false;
 
-      const box = img.getBoundingClientRect();
+      const box = imageBox();
       const rootBox = root.getBoundingClientRect();
       const scale = box.width / imgW;
       void imgH;

@@ -65,10 +65,13 @@ export function swatchMetrics(cropW, metric, count, swatchPct) {
  * @param {number} args.cropH
  * @param {LayoutOptions} args.opts
  * @param {number} args.hexPx   resolved hex label size
+ * @param {number} [args.metric] override — pass the bare crop's metric when
+ *        cropW/cropH include the edge padding, so padding cannot rescale the
+ *        frame or the swatches
  * @returns {object} geometry
  */
-export function computeLayout({ cropW, cropH, opts, hexPx }) {
-  const metric = metricOf(cropW, cropH);
+export function computeLayout({ cropW, cropH, opts, hexPx, metric: metricIn }) {
+  const metric = metricIn ?? metricOf(cropW, cropH);
 
   const border = opts.frameOn ? metric * opts.borderPct : 0;
   // Past half the shorter side, roundRect starts producing shapes nobody

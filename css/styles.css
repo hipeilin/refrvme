@@ -662,6 +662,49 @@ input[type="color"]::-moz-color-swatch { border: 0; border-radius: 2px; }
   transform: translateY(-1px) rotate(-45deg);
 }
 
+/* ══ Linked pair (two sliders that can move together) ════════════════════ */
+.linked-pair {
+  display: grid;
+  grid-template-columns: 1fr 22px;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.linked-pair__ranges .range-field:last-child { margin-bottom: 0; }
+
+.link-toggle {
+  position: relative;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+/* A bracket joining the two sliders, broken when unlinked. */
+.link-toggle::before,
+.link-toggle::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  width: 6px;
+  height: calc(50% - 16px);
+  border: 1px solid var(--edge-hi);
+  border-left: 0;
+  transition: border-color var(--t-fast);
+}
+.link-toggle::before { top: 8px; border-bottom: 0; }
+.link-toggle::after { bottom: 8px; border-top: 0; }
+.link-toggle svg { position: relative; background: var(--panel); padding: 2px 0; width: 14px; height: 18px; }
+.link-toggle:hover { color: var(--ink); }
+.link-toggle[aria-pressed="true"] { color: var(--ink); }
+.link-toggle[aria-pressed="true"]::before,
+.link-toggle[aria-pressed="true"]::after { border-color: var(--ink-2); }
+.link-toggle[aria-pressed="true"] .link-toggle__off,
+.link-toggle[aria-pressed="false"] .link-toggle__on { display: none; }
+.link-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--r-sm); }
+
 /* ══ Chips (ratio presets) ═══════════════════════════════════════════════ */
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 
