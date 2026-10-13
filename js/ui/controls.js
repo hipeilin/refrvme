@@ -54,6 +54,7 @@ function syncConditionalFields(root, state) {
 /** Format a value for its readout. */
 function formatValue(value, format) {
   if (format === 'percent') return `${(value * 100).toFixed(1)}%`;
+  if (format === 'px') return `${Math.round(value)} px`;
   if (format === 'degrees') return `${value > 0 ? '+' : ''}${value.toFixed(1)}°`;
   return String(value);
 }

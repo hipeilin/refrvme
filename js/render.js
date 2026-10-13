@@ -8,6 +8,7 @@
  *   2b. edge     — pad, round and feather the image, add a halation glow
  *   3. frame     — fill, then clip the image to rounded corners
  *   4. palette   — swatch circles + hex labels
+ *   5. border    — plain outer border, carved out of the output width
  *
  * The watermark goes on before the frame so that turning the frame on cannot
  * change the watermark's size. Every measurement derives from `metric`, the
@@ -23,7 +24,7 @@ import {
   fontStr, resolveWatermarkSize, resolveHexSize, metricOf, splitLines,
   composeWatermarkText, DEFAULT_LINE_HEIGHT,
 } from './lib/text.js';
-import { computeLayout, swatchMetrics } from './lib/layout.js';
+import { computeLayout, swatchMetrics, borderPx } from './lib/layout.js';
 
 /** Scratch context used only for text measurement during layout. */
 let scratchCtx = null;
@@ -328,7 +329,9 @@ function watermarkAnchor(pos, w, h, margin) {
  * @param {HTMLImageElement} args.image source image
  * @param {object} args.crop crop rect in source pixels
  * @param {object} args.opts full options object (see state.js)
- * @param {number} args.outputWidth width of the cropped image in the output
+ * @param {number} args.outputWidth width of the cropped image in the output,
+ *        or of the bordered image when the border is on — the border is
+ *        carved out of this width, not added to it
  * @param {number[][]} args.palette pre-extracted colours; pass the same array
  *        to preview and export so the two never disagree
  * @returns {{canvas: HTMLCanvasElement, warnings: string[], watermarkPx: number}}
@@ -336,8 +339,12 @@ function watermarkAnchor(pos, w, h, margin) {
 export function renderComposition({ image, crop, opts, outputWidth, palette = [] }) {
   const warnings = [];
 
+  // The border is inset: the crop renders narrower so that crop + border
+  // lands on outputWidth exactly (1080 stays 1080 for Instagram).
+  const outerPad = opts.border?.on ? borderPx(outputWidth, opts.border.widthPx) : 0;
+
   // ---- 1. Crop ------------------------------------------------------------
-  const imgCanvas = cropToCanvas(image, crop, outputWidth, opts.crop.angle);
+  const imgCanvas = cropToCanvas(image, crop, outputWidth - outerPad * 2, opts.crop.angle);
   const cropW = imgCanvas.width;
   const cropH = imgCanvas.height;
   const metric = metricOf(cropW, cropH);
@@ -500,6 +507,18 @@ export function renderComposition({ image, crop, opts, outputWidth, palette = []
 
   if (opts.frame.transparent && opts.export.format === 'image/jpeg') {
     warnings.push('JPEG cannot store transparency — the frame will export as black. Use PNG.');
+  }
+
+  // ---- 7. Border ----------------------------------------------------------
+  if (outerPad > 0) {
+    const bordered = document.createElement('canvas');
+    bordered.width = out.width + outerPad * 2;
+    bordered.height = out.height + outerPad * 2;
+    const bctx = bordered.getContext('2d');
+    bctx.fillStyle = opts.border.color;
+    bctx.fillRect(0, 0, bordered.width, bordered.height);
+    bctx.drawImage(out, outerPad, outerPad);
+    return { canvas: bordered, warnings, watermarkPx };
   }
 
   return { canvas: out, warnings, watermarkPx };

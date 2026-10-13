@@ -22,7 +22,7 @@ import {
   resolveWatermarkSize, resolveHexSize, metricOf, splitLines, measureBlock,
   HEX_COLUMN_FILL, TEXT,
 } from '../js/lib/text.js';
-import { computeLayout, swatchMetrics } from '../js/lib/layout.js';
+import { computeLayout, swatchMetrics, borderPx, innerRatio } from '../js/lib/layout.js';
 
 let passed = 0;
 let failed = 0;
@@ -424,6 +424,23 @@ group('layout');
   ok('hiding hex codes shortens the strip', noHex.height < withHex.height,
     `${noHex.height.toFixed(1)} vs ${withHex.height.toFixed(1)}`);
   ok('showHex reflected in layout', withHex.showHex === true && noHex.showHex === false);
+}
+
+// ---------------------------------------------------------------- border ---
+group('Border');
+{
+  // 60px on a 4:5 1080 export: photo 960 × 1230, finished 1080 × 1350.
+  const b = borderPx(1080, 60);
+  ok('px are exact at 1080', b === 60);
+  const inner = innerRatio(4 / 5, 60);
+  close('inner ratio is 960:1230', inner, 960 / 1230, 1e-12);
+  const innerW = 1080 - 2 * b;
+  const innerH = Math.round(innerW / inner);
+  ok('finished image is 1080 × 1350', innerW + 2 * b === 1080 && innerH + 2 * b === 1350,
+    `${innerW + 2 * b} × ${innerH + 2 * b}`);
+  ok('border scales with output width', borderPx(2160, 60) === 120);
+  close('zero border leaves the ratio alone', innerRatio(4 / 5, 0), 0.8, 1e-12);
+  close('impossible border falls back to the ratio', innerRatio(1, 600), 1, 1e-12);
 }
 
 // ------------------------------------------------------------------ done ---

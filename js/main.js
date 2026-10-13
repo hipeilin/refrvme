@@ -20,6 +20,7 @@ import {
   clampToBounds,
   resolveRatio,
 } from './lib/crop-geometry.js';
+import { innerRatio } from './lib/layout.js';
 import { createCropper } from './ui/cropper.js';
 import {
   bindControls,
@@ -121,10 +122,16 @@ let straightenBase = null;
 
 /* ══ Helpers ═════════════════════════════════════════════════════════════ */
 
-/** The aspect ratio currently in force, or null when the crop is unlocked. */
+/**
+ * The aspect ratio the crop is locked to, or null when unlocked. With the
+ * border on this is the photo's ratio inside the border, so the finished
+ * image, border included, comes out at the chosen preset.
+ */
 function currentRatio() {
-  const { ratioId, orientation } = store.get().crop;
-  return resolveRatio(ratioId, orientation);
+  const { crop, border } = store.get();
+  const ratio = resolveRatio(crop.ratioId, crop.orientation);
+  if (!ratio || !border.on) return ratio;
+  return innerRatio(ratio, border.widthPx);
 }
 
 /** Straighten angle in degrees; 0 when level. */
@@ -391,6 +398,14 @@ el.edgeLink.addEventListener('click', () => {
 });
 
 syncEdgeLink();
+
+/* ── Border: its width decides the crop ratio ──────────────────────────────
+   The border is inset, so the photo's shape inside it changes with it. Same
+   ordering trick as the edge link: the binder has already stored the value.  */
+
+for (const path of ['border.on', 'border.widthPx']) {
+  el.rail.querySelector(`[data-bind="${path}"]`).addEventListener('input', applyRatioToCrop);
+}
 
 /* ── Straighten ────────────────────────────────────────────────────────────
    The generic binder stores the angle; this then refits the crop inside the

@@ -96,6 +96,20 @@ export function defaultOptions() {
       transparent: false,
     },
 
+    /**
+     * Plain border around the whole finished image, sized in px against a
+     * 1080px-wide output (Instagram's feed width) and scaled proportionally at
+     * other sizes. Unlike the frame it insets the photo rather than growing
+     * the canvas: the crop ratio is narrowed to match, so a 4:5 export at
+     * 1080 wide is still exactly 1080 × 1350 with the border inside it.
+     */
+    border: {
+      on: true,
+      /** Border width in px on a 1080px-wide output. */
+      widthPx: 20,
+      color: '#FFFFFF',
+    },
+
     palette: {
       on: false,
       count: 5,

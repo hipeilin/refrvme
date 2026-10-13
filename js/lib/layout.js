@@ -57,6 +57,36 @@ export function swatchMetrics(cropW, metric, count, swatchPct) {
   return { cell, dia };
 }
 
+/** Output width the border's px values are specified against. */
+export const BORDER_REF_WIDTH = 1080;
+
+/**
+ * Border width in px for a given output width.
+ * @param {number} outputWidth width of the finished image, border included
+ * @param {number} widthPx border width on a BORDER_REF_WIDTH-wide output
+ */
+export function borderPx(outputWidth, widthPx) {
+  return Math.round((outputWidth * Math.max(0, widthPx)) / BORDER_REF_WIDTH);
+}
+
+/**
+ * The crop ratio that, once bordered on all four sides, comes out at `ratio`.
+ *
+ * On a canvas 1 wide and 1/ratio tall, a border of s leaves a photo
+ * (1 - 2s) × (1/ratio - 2s). Cropping to that shape is what keeps a 4:5
+ * export at 4:5 with the border inside it, instead of squashing the photo.
+ *
+ * @param {number} ratio target width / height of the finished image
+ * @param {number} widthPx border width on a BORDER_REF_WIDTH-wide output
+ * @returns {number}
+ */
+export function innerRatio(ratio, widthPx) {
+  const s = Math.max(0, widthPx) / BORDER_REF_WIDTH;
+  const w = 1 - 2 * s;
+  const h = 1 / ratio - 2 * s;
+  return w > 0 && h > 0 ? w / h : ratio;
+}
+
 /**
  * Build the full geometry of the composition.
  *

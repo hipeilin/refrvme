@@ -322,6 +322,29 @@
       </div>
     </section>
 
+    <!-- ── Border ──────────────────────────────────────────────────── -->
+    <section class="panel">
+      <h2 class="panel__title">
+        Border
+        <label class="switch">
+          <input type="checkbox" data-bind="border.on" checked>
+          <span class="switch__track" aria-hidden="true"></span>
+          <span class="visually-hidden">Show border</span>
+        </label>
+      </h2>
+      <p class="panel__note">Drawn inside the chosen ratio, so a 4:5 export stays 1080 × 1350. Width is in px on a 1080px-wide image.</p>
+
+      <label class="range-field">
+        <span class="field__label">Width <output data-for="border.widthPx"></output></span>
+        <input type="range" data-bind="border.widthPx" min="0" max="200" step="1" data-format="px">
+      </label>
+
+      <label class="swatch-field">
+        <span class="field__label">Colour</span>
+        <input type="color" data-bind="border.color" value="#FFFFFF">
+      </label>
+    </section>
+
     <!-- ── Palette ─────────────────────────────────────────────────── -->
     <section class="panel">
       <h2 class="panel__title">
