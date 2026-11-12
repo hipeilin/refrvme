@@ -106,7 +106,7 @@ export function defaultOptions() {
     border: {
       on: true,
       /** Border width in px on a 1080px-wide output. */
-      widthPx: 20,
+      widthPx: 40,
       color: '#FFFFFF',
     },
 
